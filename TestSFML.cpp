@@ -15,9 +15,10 @@ void displaySFMLChessUI(char board[8][8]) {
     sf::Font font;
     bool fontLoaded = font.openFromFile("C:/Windows/Fonts/arial.ttf");
 
-    sf::Color lightSquareColor(238, 238, 210);
-    sf::Color darkSquareColor(118, 150, 86);
-    sf::Color highlightColor(255, 255, 0, 150); // Semi-transparent yellow highlight
+    // RGB Parameter (Red, Green, Blue, Alpha)
+    sf::Color lightSquareColor(220, 220, 180);  // Light Green
+    sf::Color darkSquareColor(120, 145, 80);    // Dark Green
+    sf::Color highlightColor(255, 255, 0, 150); // Transparent Yellow
 
     sf::RectangleShape tile(sf::Vector2f({ static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE) }));
 
