@@ -13,7 +13,7 @@ void displaySFMLChessUI(char board[8][8]) {
     window.setFramerateLimit(60);
 
     sf::Font font;
-    bool fontLoaded = font.openFromFile("C:/Windows/Fonts/arial.ttf");
+    bool fontLoaded = font.openFromFile("arial.ttf");
 
     // RGB Parameter (Red, Green, Blue, Alpha)
     sf::Color lightSquareColor(220, 220, 180);  // Light Green
