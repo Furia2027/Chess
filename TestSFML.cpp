@@ -3,110 +3,129 @@
 #include <cctype>
 #include <string>
 
-const unsigned int TILE_SIZE = 80;
-const unsigned int BOARD_SIZE = 8;
-const unsigned int WINDOW_SIZE = TILE_SIZE * BOARD_SIZE;
+// Board Constants
+const unsigned int TILE_SIZE = 80;   // Height and width
+const unsigned int BOARD_SIZE = 8;    // 8x8 grid dimension
+const unsigned int WINDOW_SIZE = TILE_SIZE * BOARD_SIZE; // 640x640 pixels
 
-// Function accepts the 8x8 board matrix by reference to update piece positions live
-void displaySFMLChessUI(char board[8][8]) {
-    sf::RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "Interactive SFML 3 Chess");
-    window.setFramerateLimit(60);
+// Function to handle mouse input & moving pieces
+void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow, int& selectedCol) {
+    // Convert pixel coordinates (e.g., 240px) into matrix array indices
+    int col = mouseX / TILE_SIZE;
+    int row = mouseY / TILE_SIZE;
 
-    sf::Font font;
-    bool fontLoaded = font.openFromFile("arial.ttf");
+    // Ensure mouse click inside board
+    if (row >= 0 && row < 8 && col >= 0 && col < 8) {
 
-    // RGB Parameter (Red, Green, Blue, Alpha)
-    sf::Color lightSquareColor(220, 220, 180);  // Light Green
-    sf::Color darkSquareColor(120, 145, 80);    // Dark Green
-    sf::Color highlightColor(255, 255, 0, 150); // Transparent Yellow
+        // No piece is selected yet
+        if (selectedRow == -1) {
+            // Select if clicked area is a piece
+            if (board[row][col] != '.') {
+                selectedRow = row;
+                selectedCol = col;
+            }
+        }
+        // A piece is selected
+        else {
+            // Deselect if same tile is clicked
+            if (selectedRow == row && selectedCol == col) {
+                selectedRow = -1;
+                selectedCol = -1;
+            }
+            // Move piece to another tile
+            else {
+                board[row][col] = board[selectedRow][selectedCol]; // Copy piece to target tile
+                board[selectedRow][selectedCol] = '.';             // Clear old source tile
+                selectedRow = -1;                                  // Reset selection state
+                selectedCol = -1;
+            }
+        }
+    }
+}
+
+// Function to handle graphics rendering
+void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int selectedCol, const sf::Font& font, bool fontLoaded) {
+    sf::Color lightSquare(220, 220, 180);   // Light Green
+    sf::Color darkSquare(120, 145, 80);     // Dark Green
+    sf::Color highlight(255, 255, 0, 150);  // Transparent Yellow
 
     sf::RectangleShape tile(sf::Vector2f({ static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE) }));
 
-    // Selection Tracking State (-1 means no square selected)
-    int selectedRow = -1;
+    window.clear(); // Erase previous frame
+
+    // Loop for Row (0-7) & Column (0-7)
+    for (unsigned int r = 0; r < BOARD_SIZE; ++r) {
+        for (unsigned int c = 0; c < BOARD_SIZE; ++c) {
+
+            // Position and Draw background tile
+            tile.setPosition({ static_cast<float>(c * TILE_SIZE), static_cast<float>(r * TILE_SIZE) });
+            tile.setFillColor(((r + c) % 2 == 0) ? lightSquare : darkSquare);
+            window.draw(tile);
+
+            // Highlight color if a tile is selected
+            if (static_cast<int>(r) == selectedRow && static_cast<int>(c) == selectedCol) {
+                tile.setFillColor(highlight);
+                window.draw(tile);
+            }
+
+            // Draw chess piece text character if tile is not empty
+            char pieceSymbol = board[r][c];
+            if (pieceSymbol != '.' && fontLoaded) {
+                sf::Text text(font, std::string(1, pieceSymbol), 48);
+
+                
+                if (std::isupper(pieceSymbol)) {    // For Uppercase = White Piece
+                    text.setFillColor(sf::Color::White);
+                    text.setOutlineColor(sf::Color::Black);
+                    text.setOutlineThickness(2.0f);
+                }
+                else {                              // For Lowercase = Black Piece
+                    text.setFillColor(sf::Color::Black);
+                    text.setOutlineColor(sf::Color::White);
+                    text.setOutlineThickness(1.5f);
+                }
+
+                text.setPosition({ static_cast<float>(c * TILE_SIZE + 24), static_cast<float>(r * TILE_SIZE + 8) });
+                window.draw(text);
+            }
+        }
+    }
+
+    window.display(); // Display rendered frame on screen
+}
+
+// Initialize SFML objects and run render loop
+void runGame(char board[8][8]) {
+    sf::RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "Chess");
+    window.setFramerateLimit(60);
+
+    sf::Font font;
+    bool fontLoaded = font.openFromFile("C:/Windows/Fonts/arial.ttf");
+
+    int selectedRow = -1; // -1 indicates no active selection
     int selectedCol = -1;
 
+    // Continuous Main Loop (runs until window is closed)
     while (window.isOpen()) {
+
+        // Event Processing Stage
         while (const auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
-            // 1. Capture Mouse Click Events
             else if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>()) {
                 if (mousePressed->button == sf::Mouse::Button::Left) {
-                    // Convert pixel coordinates (x, y) to board grid indices (col, row)
-                    int c = mousePressed->position.x / TILE_SIZE;
-                    int r = mousePressed->position.y / TILE_SIZE;
-
-                    if (r >= 0 && r < 8 && c >= 0 && c < 8) {
-                        if (selectedRow == -1) {
-                            // Step 1: Select a piece to move (must not be an empty tile)
-                            if (board[r][c] != '.') {
-                                selectedRow = r;
-                                selectedCol = c;
-                            }
-                        }
-                        else {
-                            // Step 2: Deselect if clicking the same tile
-                            if (selectedRow == r && selectedCol == c) {
-                                selectedRow = -1;
-                                selectedCol = -1;
-                            }
-                            // Step 3: Move piece to target destination in board array
-                            else {
-                                board[r][c] = board[selectedRow][selectedCol];
-                                board[selectedRow][selectedCol] = '.';
-                                selectedRow = -1;
-                                selectedCol = -1;
-                            }
-                        }
-                    }
+                    handleMouseClick(mousePressed->position.x, mousePressed->position.y, board, selectedRow, selectedCol);
                 }
             }
         }
 
-        window.clear();
-
-        // 2. Render Grid, Highlights, and Pieces
-        for (unsigned int r = 0; r < BOARD_SIZE; ++r) {
-            for (unsigned int c = 0; c < BOARD_SIZE; ++c) {
-                // Render Base Tile
-                tile.setPosition({ static_cast<float>(c * TILE_SIZE), static_cast<float>(r * TILE_SIZE) });
-                tile.setFillColor(((r + c) % 2 == 0) ? lightSquareColor : darkSquareColor);
-                window.draw(tile);
-
-                // Render Yellow Highlight on Selected Square
-                if (static_cast<int>(r) == selectedRow && static_cast<int>(c) == selectedCol) {
-                    tile.setFillColor(highlightColor);
-                    window.draw(tile);
-                }
-
-                // Render Piece Glyph
-                char pieceSymbol = board[r][c];
-                if (pieceSymbol != '.' && fontLoaded) {
-                    sf::Text text(font, std::string(1, pieceSymbol), 48);
-
-                    if (std::isupper(pieceSymbol)) {
-                        text.setFillColor(sf::Color::White);
-                        text.setOutlineColor(sf::Color::Black);
-                        text.setOutlineThickness(2.0f);
-                    }
-                    else {
-                        text.setFillColor(sf::Color::Black);
-                        text.setOutlineColor(sf::Color::White);
-                        text.setOutlineThickness(1.5f);
-                    }
-
-                    text.setPosition({ static_cast<float>(c * TILE_SIZE + 24), static_cast<float>(r * TILE_SIZE + 8) });
-                    window.draw(text);
-                }
-            }
-        }
-
-        window.display();
+        // Rendering Stage
+        renderGame(window, board, selectedRow, selectedCol, font, fontLoaded);
     }
 }
 
+// Main Function
 int main() {
     char board[8][8] = {
         {'r','n','b','q','k','b','n','r'},
@@ -119,6 +138,6 @@ int main() {
         {'R','N','B','Q','K','B','N','R'}
     };
 
-    displaySFMLChessUI(board);
+    runGame(board);
     return 0;
 }
