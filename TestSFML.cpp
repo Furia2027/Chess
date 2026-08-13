@@ -1,155 +1,160 @@
 #include <SFML/Graphics.hpp>
 #include <iostream>
-#include <cctype>
 #include <string>
-#include <unordered_map>
 
 using namespace std;
 
 // Board Constants
-const unsigned int TILE_SIZE = 80;   // Height and width
-const unsigned int BOARD_SIZE = 8;    // 8x8 grid dimension
+const int TILE_SIZE = 80;
+const int BOARD_SIZE = 8;
 const unsigned int WINDOW_SIZE = TILE_SIZE * BOARD_SIZE; // 640x640 pixels
 
-// Function to load chess piece images
-bool loadTextures(std::unordered_map<char, sf::Texture>& pieceTextures) {
-    std::unordered_map<char, std::string> fileMap = {
-        {'P', "assets/W_Pawn.png"},   {'p', "assets/B_Pawn.png"},
-        {'R', "assets/W_Rook.png"},   {'r', "assets/B_Rook.png"},
-        {'N', "assets/W_Knight.png"}, {'n', "assets/B_Knight.png"},
-        {'B', "assets/W_Bishop.png"}, {'b', "assets/B_Bishop.png"},
-        {'Q', "assets/W_Queen.png"},  {'q', "assets/B_Queen.png"},
-        {'K', "assets/W_King.png"},   {'k', "assets/B_King.png"}
+// Global array that creates 128 empty texture objects
+sf::Texture pieceTextures[128];
+
+// Function to load all 12 chess piece images
+bool loadTextures() {
+    char pieces[] = { 'P', 'p', 'R', 'r', 'N', 'n', 'B', 'b', 'Q', 'q', 'K', 'k' };
+
+    string filenames[] = {
+        "assets/W_Pawn.png",   "assets/B_Pawn.png",
+        "assets/W_Rook.png",   "assets/B_Rook.png",
+        "assets/W_Knight.png", "assets/B_Knight.png",
+        "assets/W_Bishop.png", "assets/B_Bishop.png",
+        "assets/W_Queen.png",  "assets/B_Queen.png",
+        "assets/W_King.png",   "assets/B_King.png"
     };
 
-    for (const auto& [pieceChar, filePath] : fileMap) {
-        if (!pieceTextures[pieceChar].loadFromFile(filePath)) {
+    // Load 12 Images into pieces[] array
+    for (int i = 0; i < 12; i++) {
+        // Checks if image files are loaded
+        if (!pieceTextures[(int)pieces[i]].loadFromFile(filenames[i])) {
+            cout << "Error: Could not load " << filenames[i] << endl;
             return false;
         }
-        pieceTextures[pieceChar].setSmooth(true);
+        // Loads image and enables bilinear filtering on image texture
+        pieceTextures[(int)pieces[i]].setSmooth(true);
     }
     return true;
 }
 
 // Function to handle mouse input & moving pieces
 void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow, int& selectedCol) {
-    // Convert pixel coordinates (e.g., 240px) into matrix array indices
+    // Convert coordinates into array matrixes indices
     int col = mouseX / TILE_SIZE;
     int row = mouseY / TILE_SIZE;
 
-    // Ensure mouse click inside board
-    if (row >= 0 && row < 8 && col >= 0 && col < 8) {
+    // Ignore clicks outside the chess board
+    if (row < 0 || row >= 8 || col < 0 || col >= 8) return;
 
-        // No piece is selected yet
-        if (selectedRow == -1) {
-            // Select if clicked area is a piece
-            if (board[row][col] != '.') {
-                selectedRow = row;
-                selectedCol = col;
+    // Case 1: Nothing is Selected
+    if (selectedRow == -1) {
+        // Selects piece f a piece is clicked
+        if (board[row][col] != '.') {
+            selectedRow = row;
+            selectedCol = col;
+        }
+    }
+    // Case 2: A piece is selected
+    else {
+        // Check if the same tile is selected again
+        if (selectedRow != row || selectedCol != col) {
+            // Moves piece to the selected tile if a different tile is selected
+            if (selectedRow >= 0 && selectedRow < 8 && selectedCol >= 0 && selectedCol < 8) {
+                board[row][col] = board[selectedRow][selectedCol];
+                board[selectedRow][selectedCol] = '.';
             }
         }
-        // A piece is selected
-        else {
-            // Deselect if same tile is clicked
-            if (selectedRow == row && selectedCol == col) {
-                selectedRow = -1;
-                selectedCol = -1;
-            }
-            // Move piece to another tile
-            else {
-                board[row][col] = board[selectedRow][selectedCol]; // Copy piece to target tile
-                board[selectedRow][selectedCol] = '.';             // Clear old source tile
-                selectedRow = -1;                                  // Reset selection state
-                selectedCol = -1;
-            }
-        }
+        // Resets selection
+        selectedRow = -1;
+        selectedCol = -1;
     }
 }
 
-// Function to handle graphics rendering
-void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int selectedCol, const std::unordered_map<char, sf::Texture>& pieceTextures) {
+// Function to display the window with the board
+void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int selectedCol) {
+    // Defines color of the board tiles with RGBA color channels
     sf::Color lightSquare(220, 220, 180);   // Light Green
     sf::Color darkSquare(120, 145, 80);     // Dark Green
-    sf::Color highlight(255, 255, 0, 150);  // Transparent Yellow
+    sf::Color highlight(245, 245, 0, 220);  // Highlight Yellow
 
-    sf::RectangleShape tile(sf::Vector2f({ static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE) }));
+    // Draws the board tiles with constant TILE_SIZE dimensions
+    sf::RectangleShape tile(sf::Vector2f((float)TILE_SIZE, (float)TILE_SIZE));
 
-    window.clear(); // Erase previous frame
+    // Erase rendered previous frames
+    window.clear();
 
-    // Loop for Row (0-7) & Column (0-7)
-    for (unsigned int r = 0; r < BOARD_SIZE; ++r) {
-        for (unsigned int c = 0; c < BOARD_SIZE; ++c) {
+    // Loop through board grid
+    for (int r = 0; r < BOARD_SIZE; r++) {
+        for (int c = 0; c < BOARD_SIZE; c++) {
 
-            // Position and Draw background tile
-            tile.setPosition({ static_cast<float>(c * TILE_SIZE), static_cast<float>(r * TILE_SIZE) });
+            // Configures the board tiles' color and position on the board
+            tile.setPosition({ (float)c * TILE_SIZE, (float)r * TILE_SIZE });
             tile.setFillColor(((r + c) % 2 == 0) ? lightSquare : darkSquare);
+
+            // Apply highlight color on selected tile
+            if (r == selectedRow && c == selectedCol) {
+                tile.setFillColor(highlight);
+            }
+            // Draws Tiles with the configured tile colour and size
             window.draw(tile);
 
-            // Highlight color if a tile is selected
-            if (static_cast<int>(r) == selectedRow && static_cast<int>(c) == selectedCol) {
-                tile.setFillColor(highlight);
-                window.draw(tile);
-            }
+            char piece = board[r][c];
+            if (piece != '.') {
+                // Binds piece image onto the tile if it is not empty (.)
+                sf::Sprite sprite(pieceTextures[(int)piece]);
 
-            // Draw chess piece image if tile is not empty
-            char pieceSymbol = board[r][c];
-            if (pieceSymbol != '.') {
-                auto it = pieceTextures.find(pieceSymbol);
-                if (it != pieceTextures.end()) {
-                    sf::Sprite sprite(it->second);
+                // Auto-scale chess piece image to match tile size (80x80)
+                sf::Vector2u size = pieceTextures[(int)piece].getSize();
+                sprite.setScale({ (float)TILE_SIZE / size.x, (float)TILE_SIZE / size.y });
+                sprite.setPosition({ (float)c * TILE_SIZE, (float)r * TILE_SIZE });
 
-                    // Auto-scale sprite image to match grid tile size (80x80)
-                    sf::Vector2u imageSize = it->second.getSize();
-                    sprite.setScale({
-                        static_cast<float>(TILE_SIZE) / imageSize.x,
-                        static_cast<float>(TILE_SIZE) / imageSize.y
-                        });
-
-                    // Position piece image
-                    sprite.setPosition({ static_cast<float>(c * TILE_SIZE), static_cast<float>(r * TILE_SIZE) });
-                    window.draw(sprite);
-                }
+                // Draws Chess Piece with the image
+                window.draw(sprite);
             }
         }
     }
-
-    window.display(); // Display rendered frame on screen
+    // Takes data from windows.draw() and display the window
+    window.display();
 }
 
-// Initialize SFML objects and run render loop
+// Function to initialize window and run the game loop
 void runGame(char board[8][8]) {
-    sf::RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "Chess");
+    // Wait until texture is loaded
+    if (!loadTextures()) 
+        return;
+
+    // Create the window with the loaded textures
+    sf::RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "UTAR Chess");
     window.setFramerateLimit(60);
 
-    std::unordered_map<char, sf::Texture> pieceTextures;
-    if (!loadTextures(pieceTextures)) {
-        cerr << "Error: Could not load all chess piece textures!" << endl;
-        return;
-    }
-
-    int selectedRow = -1; // -1 indicates no active selection
+    // Declare for mouse clicks
+    int selectedRow = -1;
     int selectedCol = -1;
 
-    // Continuous Main Loop (runs until window is closed)
+    // Game loop
     while (window.isOpen()) {
+        // Receive user interactions from windows's OS queue
         while (const auto event = window.pollEvent()) {
+            // Checks if polled window event is a close request
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
-            else if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>()) {
-                if (mousePressed->button == sf::Mouse::Button::Left) {
-                    handleMouseClick(mousePressed->position.x, mousePressed->position.y, board, selectedRow, selectedCol);
+            // Check for mouse click event
+            if (const auto* click = event->getIf<sf::Event::MouseButtonPressed>()) {
+                // Check clicked mouse button (Left)
+                if (click->button == sf::Mouse::Button::Left) {
+                    handleMouseClick(click->position.x, click->position.y, board, selectedRow, selectedCol);
                 }
             }
         }
-
-        // Rendering Stage
-        renderGame(window, board, selectedRow, selectedCol, pieceTextures);
+        // Display chess board inside the window
+        renderGame(window, board, selectedRow, selectedCol);
     }
 }
 
-// Main Function
 int main() {
+    // Board Array
     char board[8][8] = {
         {'r','n','b','q','k','b','n','r'},
         {'p','p','p','p','p','p','p','p'},
