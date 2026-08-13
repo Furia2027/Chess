@@ -100,7 +100,7 @@ void runGame(char board[8][8]) {
     window.setFramerateLimit(60);
 
     sf::Font font;
-    bool fontLoaded = font.openFromFile("C:/Windows/Fonts/arial.ttf");
+    bool fontLoaded = font.openFromFile("arial.ttf");
 
     int selectedRow = -1; // -1 indicates no active selection
     int selectedCol = -1;
