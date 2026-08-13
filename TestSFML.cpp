@@ -2,11 +2,34 @@
 #include <iostream>
 #include <cctype>
 #include <string>
+#include <unordered_map>
+
+using namespace std;
 
 // Board Constants
 const unsigned int TILE_SIZE = 80;   // Height and width
 const unsigned int BOARD_SIZE = 8;    // 8x8 grid dimension
 const unsigned int WINDOW_SIZE = TILE_SIZE * BOARD_SIZE; // 640x640 pixels
+
+// Function to load chess piece images
+bool loadTextures(std::unordered_map<char, sf::Texture>& pieceTextures) {
+    std::unordered_map<char, std::string> fileMap = {
+        {'P', "assets/W_Pawn.png"},   {'p', "assets/B_Pawn.png"},
+        {'R', "assets/W_Rook.png"},   {'r', "assets/B_Rook.png"},
+        {'N', "assets/W_Knight.png"}, {'n', "assets/B_Knight.png"},
+        {'B', "assets/W_Bishop.png"}, {'b', "assets/B_Bishop.png"},
+        {'Q', "assets/W_Queen.png"},  {'q', "assets/B_Queen.png"},
+        {'K', "assets/W_King.png"},   {'k', "assets/B_King.png"}
+    };
+
+    for (const auto& [pieceChar, filePath] : fileMap) {
+        if (!pieceTextures[pieceChar].loadFromFile(filePath)) {
+            return false;
+        }
+        pieceTextures[pieceChar].setSmooth(true);
+    }
+    return true;
+}
 
 // Function to handle mouse input & moving pieces
 void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow, int& selectedCol) {
@@ -44,7 +67,7 @@ void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow
 }
 
 // Function to handle graphics rendering
-void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int selectedCol, const sf::Font& font, bool fontLoaded) {
+void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int selectedCol, const std::unordered_map<char, sf::Texture>& pieceTextures) {
     sf::Color lightSquare(220, 220, 180);   // Light Green
     sf::Color darkSquare(120, 145, 80);     // Dark Green
     sf::Color highlight(255, 255, 0, 150);  // Transparent Yellow
@@ -68,25 +91,24 @@ void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int
                 window.draw(tile);
             }
 
-            // Draw chess piece text character if tile is not empty
+            // Draw chess piece image if tile is not empty
             char pieceSymbol = board[r][c];
-            if (pieceSymbol != '.' && fontLoaded) {
-                sf::Text text(font, std::string(1, pieceSymbol), 48);
+            if (pieceSymbol != '.') {
+                auto it = pieceTextures.find(pieceSymbol);
+                if (it != pieceTextures.end()) {
+                    sf::Sprite sprite(it->second);
 
-                
-                if (std::isupper(pieceSymbol)) {    // For Uppercase = White Piece
-                    text.setFillColor(sf::Color::White);
-                    text.setOutlineColor(sf::Color::Black);
-                    text.setOutlineThickness(2.0f);
-                }
-                else {                              // For Lowercase = Black Piece
-                    text.setFillColor(sf::Color::Black);
-                    text.setOutlineColor(sf::Color::White);
-                    text.setOutlineThickness(1.5f);
-                }
+                    // Auto-scale sprite image to match grid tile size (80x80)
+                    sf::Vector2u imageSize = it->second.getSize();
+                    sprite.setScale({
+                        static_cast<float>(TILE_SIZE) / imageSize.x,
+                        static_cast<float>(TILE_SIZE) / imageSize.y
+                        });
 
-                text.setPosition({ static_cast<float>(c * TILE_SIZE + 24), static_cast<float>(r * TILE_SIZE + 8) });
-                window.draw(text);
+                    // Position piece image
+                    sprite.setPosition({ static_cast<float>(c * TILE_SIZE), static_cast<float>(r * TILE_SIZE) });
+                    window.draw(sprite);
+                }
             }
         }
     }
@@ -99,16 +121,17 @@ void runGame(char board[8][8]) {
     sf::RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "Chess");
     window.setFramerateLimit(60);
 
-    sf::Font font;
-    bool fontLoaded = font.openFromFile("arial.ttf");
+    std::unordered_map<char, sf::Texture> pieceTextures;
+    if (!loadTextures(pieceTextures)) {
+        cerr << "Error: Could not load all chess piece textures!" << endl;
+        return;
+    }
 
     int selectedRow = -1; // -1 indicates no active selection
     int selectedCol = -1;
 
     // Continuous Main Loop (runs until window is closed)
     while (window.isOpen()) {
-
-        // Event Processing Stage
         while (const auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
                 window.close();
@@ -121,7 +144,7 @@ void runGame(char board[8][8]) {
         }
 
         // Rendering Stage
-        renderGame(window, board, selectedRow, selectedCol, font, fontLoaded);
+        renderGame(window, board, selectedRow, selectedCol, pieceTextures);
     }
 }
 
