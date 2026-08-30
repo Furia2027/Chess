@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <iostream>
 #include <string>
+#include <cctype>
 
 using namespace std;
 
@@ -11,6 +12,25 @@ const unsigned int WINDOW_SIZE = TILE_SIZE * BOARD_SIZE; // 640x640 pixels
 
 // Global array that creates 128 empty texture objects
 sf::Texture pieceTextures[128];
+
+// Scoped Enumeration that represents the chess pieces' colours
+enum class PieceColour {
+    white,
+    black,
+    empty,
+    invalid
+};
+
+enum class PieceType {
+    pawn,
+    rook,
+    knight,
+    bishop,
+    queen,
+    king,
+    empty,
+    invalid
+};
 
 // Function to load all 12 chess piece images
 bool loadTextures() {
@@ -38,29 +58,83 @@ bool loadTextures() {
     return true;
 }
 
+PieceColour getPieceColour(int row, int col, const char board[8][8]) {
+    // Check Board Grid Boundary
+    if (row < 0 || row >= 8 || col < 0 || col >= 8) {
+        return PieceColour::invalid;
+    }
+
+    // Initialize Pieces
+    char pieces = board[row][col];
+
+    // Check Pieces States
+    switch (pieces) {
+        // Check for Empty Tiles
+    case '.':
+        return PieceColour::empty;
+    default:
+        // Check for Upper, Lower and Invalid Tiles
+        if (isupper(pieces)) return PieceColour::white;
+        if (islower(pieces)) return PieceColour::black;
+        return PieceColour::invalid;
+    }
+}
+
+PieceType getPieceType(int row, int col, const char board[8][8]) {
+    // Check Board Grid Boundary
+    if (row < 0 || row >= 8 || col < 0 || col >= 8) {
+        return PieceType::invalid;
+    }
+
+    // Initialize Pieces
+    char pieces = board[row][col];
+
+    // Check for Empty tiles
+    if (pieces == '.') {
+        return PieceType::empty;
+    }
+
+    // Convert all piece in board to lowercases
+    char piecetype = tolower(pieces);
+
+    // Map each to PieceType
+    switch (piecetype) {
+        case 'p': return PieceType::pawn;
+        case 'r': return PieceType::rook;
+        case 'n': return PieceType::knight;
+        case 'b': return PieceType::bishop;
+        case 'q': return PieceType::queen;
+        case 'k': return PieceType::king;
+        default: return PieceType::invalid;
+    }
+}
+
 // Function to handle mouse input & moving pieces
 void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow, int& selectedCol) {
     // Convert coordinates into array matrixes indices
     int col = mouseX / TILE_SIZE;
     int row = mouseY / TILE_SIZE;
 
+    PieceColour clickedTarget = getPieceColour(row, col, board);
+
     // Ignore clicks outside the chess board
-    if (row < 0 || row >= 8 || col < 0 || col >= 8) return;
+    if (clickedTarget == PieceColour::invalid) return;
 
     // Case 1: Nothing is Selected
     if (selectedRow == -1) {
         // Selects piece f a piece is clicked
-        if (board[row][col] != '.') {
+        if (clickedTarget != PieceColour::empty) {
             selectedRow = row;
             selectedCol = col;
         }
     }
     // Case 2: A piece is selected
     else {
+        PieceColour clickedColour = getPieceColour(selectedRow, selectedCol, board);
         // Check if the same tile is selected again
         if (selectedRow != row || selectedCol != col) {
             // Moves piece to the selected tile if a different tile is selected
-            if (selectedRow >= 0 && selectedRow < 8 && selectedCol >= 0 && selectedCol < 8) {
+            if (clickedColour != clickedTarget) {
                 board[row][col] = board[selectedRow][selectedCol];
                 board[selectedRow][selectedCol] = '.';
             }
