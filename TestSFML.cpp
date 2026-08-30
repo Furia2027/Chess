@@ -81,13 +81,13 @@ PieceColour getPieceColour(int row, int col, const char board[8][8]) {
 }
 
 PieceType getPieceType(int row, int col, const char board[8][8]) {
+    // Initialize Pieces
+    char pieces = board[row][col];
+   
     // Check Board Grid Boundary
     if (row < 0 || row >= 8 || col < 0 || col >= 8) {
         return PieceType::invalid;
     }
-
-    // Initialize Pieces
-    char pieces = board[row][col];
 
     // Check for Empty tiles
     if (pieces == '.') {
