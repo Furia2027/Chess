@@ -4,6 +4,7 @@
 #include <cctype>
 
 using namespace std;
+using namespace sf; // For simplify SFML formats
 
 // Board Constants
 const int TILE_SIZE = 80;
@@ -11,7 +12,7 @@ const int BOARD_SIZE = 8;
 const unsigned int WINDOW_SIZE = TILE_SIZE * BOARD_SIZE; // 640x640 pixels
 
 // Global array that creates 128 empty texture objects
-sf::Texture pieceTextures[128];
+Texture pieceTextures[128];
 
 // Scoped Enumeration that represents the chess pieces' colours
 enum class PieceColour {
@@ -110,10 +111,10 @@ PieceType getPieceType(int row, int col, const char board[8][8]) {
 }
 
 // Function to handle mouse input & moving pieces
-void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow, int& selectedCol) {
+void handleMouseClick(float mouseX, float mouseY, char board[8][8], int& selectedRow, int& selectedCol) {
     // Convert coordinates into array matrixes indices
-    int col = mouseX / TILE_SIZE;
-    int row = mouseY / TILE_SIZE;
+    int col = static_cast<int>(mouseX) / TILE_SIZE;
+    int row = static_cast<int>(mouseY) / TILE_SIZE;
 
     PieceColour clickedTarget = getPieceColour(row, col, board);
 
@@ -148,12 +149,12 @@ void handleMouseClick(int mouseX, int mouseY, char board[8][8], int& selectedRow
 // Function to display the window with the board
 void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int selectedCol) {
     // Defines color of the board tiles with RGBA color channels
-    sf::Color lightSquare(220, 220, 180);   // Light Green
-    sf::Color darkSquare(120, 145, 80);     // Dark Green
-    sf::Color highlight(245, 245, 0, 220);  // Highlight Yellow
+    Color lightSquare(220, 220, 180);   // Light Green
+    Color darkSquare(120, 145, 80);     // Dark Green
+    Color highlight(245, 245, 0, 220);  // Highlight Yellow
 
     // Draws the board tiles with constant TILE_SIZE dimensions
-    sf::RectangleShape tile(sf::Vector2f((float)TILE_SIZE, (float)TILE_SIZE));
+    RectangleShape tile(Vector2f((float)TILE_SIZE, (float)TILE_SIZE));
 
     // Erase rendered previous frames
     window.clear();
@@ -179,7 +180,7 @@ void renderGame(sf::RenderWindow& window, char board[8][8], int selectedRow, int
                 sf::Sprite sprite(pieceTextures[(int)piece]);
 
                 // Auto-scale chess piece image to match tile size (80x80)
-                sf::Vector2u size = pieceTextures[(int)piece].getSize();
+                Vector2u size = pieceTextures[(int)piece].getSize();
                 sprite.setScale({ (float)TILE_SIZE / size.x, (float)TILE_SIZE / size.y });
                 sprite.setPosition({ (float)c * TILE_SIZE, (float)r * TILE_SIZE });
 
@@ -199,7 +200,7 @@ void runGame(char board[8][8]) {
         return;
 
     // Create the window with the loaded textures
-    sf::RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "UTAR Chess");
+    RenderWindow window(sf::VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "UTAR Chess");
     window.setFramerateLimit(60);
 
     // Declare for mouse clicks
@@ -214,11 +215,40 @@ void runGame(char board[8][8]) {
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
+            // Checks if the window's size is asjusted
+            if (const auto* resized = event->getIf<Event::Resized>()) {
+                // Convert new window's size from integer to float data type
+                float w = (float)resized->size.x;
+                float h = (float)resized->size.y;
+
+                // Default to Full Window Size (100% width & height)
+                FloatRect viewport({}, {1, 1});
+
+                if (w > h) {
+                    // Window is wider than height (Scales down new window's width)
+                    viewport.size.x = h / w;
+                    viewport.position.x = (1 - viewport.size.x) / 2; // Center the board horizontally
+                }
+                else {
+                    // Window is taller than width (Scales down new window's height)
+                    viewport.size.y = w / h;
+                    viewport.position.y = (1 - viewport.size.y) / 2; // Center the board vertically
+                }
+                // 2D Camera locked to fixed 640*640 resolution
+                View fixedView(FloatRect({}, {640, 640})); 
+                // Assign calculated screen percentage bounds with black bars to camera view
+                fixedView.setViewport(viewport);
+                // Apply Camera view to window so graphics render at 1:1 aspect ratio
+                window.setView(fixedView);
+            }
             // Check for mouse click event
-            if (const auto* click = event->getIf<sf::Event::MouseButtonPressed>()) {
+            if (const auto* click = event->getIf<Event::MouseButtonPressed>()) {
                 // Check clicked mouse button (Left)
-                if (click->button == sf::Mouse::Button::Left) {
-                    handleMouseClick(click->position.x, click->position.y, board, selectedRow, selectedCol);
+                if (click->button == Mouse::Button::Left) {
+                    // Convert window's pixels to 640*640 game world coordinates
+                    Vector2f worldPos = window.mapPixelToCoords(click->position);
+                    // Pass converted board coordinates to select or move pieces
+                    handleMouseClick(worldPos.x, worldPos.y, board, selectedRow, selectedCol);
                 }
             }
         }
