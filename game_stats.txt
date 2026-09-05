@@ -1,2 +1,11 @@
 Winner: Match_End | Total Moves: 2
 Winner: Match_End | Total Moves: 1
+Winner: Match_End | Total Moves: 2
+Winner: Match_End | Total Moves: 2
+Winner: Match_End | Total Moves: 3
+Winner: Match_End | Total Moves: 3
+Winner: Match_End | Total Moves: 4
+Winner: Match_End | Total Moves: 17
+Winner: Match_End | Total Moves: 19
+Winner: Match_End | Total Moves: 21
+Winner: Match_End | Total Moves: 0
