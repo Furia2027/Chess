@@ -15,7 +15,7 @@ const unsigned int WINDOW_SIZE = 640;
 const int TILE_SIZE = 80;
 const float MENU_WIDTH = 150.f;
 const float OPTION_HEIGHT = 35.f;
-const int TOTAL_OPTIONS = 3;
+const int TOTAL_OPTIONS = 4;
 
 // Color Palette
 const Color lightSquare(220, 220, 180);
@@ -181,7 +181,7 @@ bool loadAssets() {
 }
 
 // Chessboard Renderer
-void renderChessBoard(RenderWindow& window, char board[8][8], int selRow = -1, int selCol = -1, bool hasSel = false) {
+void renderChessBoard(RenderWindow& window, const char board[8][8], int selRow = -1, int selCol = -1, bool hasSel = false) {
     const float tileSize = WINDOW_SIZE / 8.f;
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
@@ -210,6 +210,521 @@ void renderChessBoard(RenderWindow& window, char board[8][8], int selRow = -1, i
 }
 
 // ============================================================================
+// REUSABLE UI COMPONENT
+// ============================================================================
+
+class ChessUI {
+public:
+    // Action and Navigation Buttons
+    MenuButton btnStart;
+    MenuButton btnLoad;
+    MenuButton btnHistory;
+    MenuButton btnExit;
+    MenuButton btnBackFromLoad;
+    MenuButton btnPlaySaved;
+    MenuButton btnBackFromHist;
+    MenuButton btnConfirmGroup;
+
+    ChessUI() {
+        const float btnWidth = 320.f;
+        const float btnHeight = 46.f;
+        const float btnX = (WINDOW_SIZE - btnWidth) / 2.f;
+
+        btnStart = { { { btnX, 230.f }, { btnWidth, btnHeight } }, "1. Start New Game" };
+        btnLoad = { { { btnX, 290.f }, { btnWidth, btnHeight } }, "2. Load Game" };
+        btnHistory = { { { btnX, 350.f }, { btnWidth, btnHeight } }, "3. Display Move History" };
+        btnExit = { { { btnX, 410.f }, { btnWidth, btnHeight } }, "4. Exit" };
+
+        btnBackFromLoad = { { { (WINDOW_SIZE - 200.f) / 2.f, 560.f }, { 200.f, 40.f } }, "Back to Menu" };
+        btnPlaySaved = { { { (WINDOW_SIZE - 200.f) / 2.f, 510.f }, { 200.f, 40.f } }, "Play Game" };
+        btnBackFromHist = { { { (WINDOW_SIZE - 200.f) / 2.f, 560.f }, { 200.f, 40.f } }, "Back to Menu" };
+        btnConfirmGroup = { { { (WINDOW_SIZE - 180.f) / 2.f, 380.f }, { 180.f, 44.f } }, "Confirm" };
+    }
+
+    // Top decorative checkered border
+    void renderTopBorder(RenderWindow& window) const {
+        const float checkSize = 20.f;
+        for (unsigned int i = 0; i < WINDOW_SIZE / (unsigned int)checkSize; ++i) {
+            RectangleShape chk({ checkSize, 6.f });
+            chk.setPosition({ (float)i * checkSize, 0.f });
+            chk.setFillColor((i % 2 == 0) ? lightSquare : darkSquare);
+            window.draw(chk);
+        }
+    }
+
+    // Screen: Group Name Input
+    void renderGroupNameInput(RenderWindow& window, Font& font, const string& groupName, bool showCursor, Vector2f mousePos) const {
+        RectangleShape card({ 440.f, 320.f });
+        card.setPosition({ (WINDOW_SIZE - 440.f) / 2.f, 160.f });
+        card.setFillColor(panelBg);
+        card.setOutlineColor(darkSquare);
+        card.setOutlineThickness(2.f);
+        window.draw(card);
+
+        Text header(font, "WELCOME TO CHESS SYSTEM", 22);
+        header.setFillColor(lightSquare);
+        FloatRect hb = header.getLocalBounds();
+        header.setOrigin({ hb.position.x + hb.size.x / 2.f, hb.position.y + hb.size.y / 2.f });
+        header.setPosition({ WINDOW_SIZE / 2.f, 205.f });
+        window.draw(header);
+
+        Text prompt(font, "Enter Group / Team Name to Start:", 15);
+        prompt.setFillColor(Color(200, 200, 200));
+        FloatRect pb = prompt.getLocalBounds();
+        prompt.setOrigin({ pb.position.x + pb.size.x / 2.f, pb.position.y + pb.size.y / 2.f });
+        prompt.setPosition({ WINDOW_SIZE / 2.f, 255.f });
+        window.draw(prompt);
+
+        RectangleShape inputBox({ 320.f, 44.f });
+        inputBox.setPosition({ (WINDOW_SIZE - 320.f) / 2.f, 295.f });
+        inputBox.setFillColor(Color(25, 28, 22));
+        inputBox.setOutlineColor(highlightColor);
+        inputBox.setOutlineThickness(1.5f);
+        window.draw(inputBox);
+
+        string displayText = groupName;
+        if (showCursor) displayText += "_";
+
+        Text inputText(font, displayText, 18);
+        inputText.setFillColor(Color::White);
+        inputText.setPosition({ (WINDOW_SIZE - 300.f) / 2.f, 307.f });
+        window.draw(inputText);
+
+        btnConfirmGroup.draw(window, font, mousePos);
+    }
+
+    // Screen: Main Menu
+    void renderMainMenu(RenderWindow& window, Font& font, const string& groupName, Vector2f mousePos) const {
+        Text title(font, "CHESS SYSTEM", 32);
+        title.setFillColor(lightSquare);
+        FloatRect tb = title.getLocalBounds();
+        title.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
+        title.setPosition({ WINDOW_SIZE / 2.f, 75.f });
+        window.draw(title);
+
+        Text sub(font, "Team: [" + groupName + "]", 18);
+        sub.setFillColor(highlightColor);
+        FloatRect sb = sub.getLocalBounds();
+        sub.setOrigin({ sb.position.x + sb.size.x / 2.f, sb.position.y + sb.size.y / 2.f });
+        sub.setPosition({ WINDOW_SIZE / 2.f, 118.f });
+        window.draw(sub);
+
+        // Alert Box under Team Name
+        const float alertWidth = 460.f;
+        const float alertHeight = 40.f;
+        const float alertX = (WINDOW_SIZE - alertWidth) / 2.f;
+        const float alertY = 158.f;
+
+        RectangleShape alertBox({ alertWidth, alertHeight });
+        alertBox.setPosition({ alertX, alertY });
+        alertBox.setFillColor(Color(40, 48, 35, 230));
+        alertBox.setOutlineColor(highlightColor);
+        alertBox.setOutlineThickness(1.5f);
+        window.draw(alertBox);
+
+        // Accent strip on the left side of the alert box
+        RectangleShape accentStrip({ 4.f, alertHeight });
+        accentStrip.setPosition({ alertX, alertY });
+        accentStrip.setFillColor(highlightColor);
+        window.draw(accentStrip);
+
+        Text alertText(font, "[!] Right-click during game for menu options (Save/Load/Menu)", 13);
+        alertText.setFillColor(Color(240, 240, 220));
+        FloatRect ab = alertText.getLocalBounds();
+        alertText.setOrigin({ ab.position.x + ab.size.x / 2.f, ab.position.y + ab.size.y / 2.f });
+        alertText.setPosition({ alertX + alertWidth / 2.f + 4.f, alertY + alertHeight / 2.f });
+        window.draw(alertText);
+
+        btnStart.draw(window, font, mousePos);
+        btnLoad.draw(window, font, mousePos);
+        btnHistory.draw(window, font, mousePos);
+        btnExit.draw(window, font, mousePos);
+    }
+
+    // Screen: Saved Game Preview
+    void renderLoadGamePreview(RenderWindow& window, Font& font, bool hasSaveData, const char savedBoard[8][8], Vector2f mousePos) const {
+        Text title(font, "SAVED GAME PREVIEW", 24);
+        title.setFillColor(lightSquare);
+        FloatRect tb = title.getLocalBounds();
+        title.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
+        title.setPosition({ WINDOW_SIZE / 2.f, 45.f });
+        window.draw(title);
+
+        if (hasSaveData) {
+            const float tileSize = 42.f;
+            const float startX = (WINDOW_SIZE - tileSize * 8.f) / 2.f;
+            const float startY = 115.f;
+
+            for (int r = 0; r < 8; r++) {
+                for (int c = 0; c < 8; c++) {
+                    RectangleShape tile({ tileSize, tileSize });
+                    tile.setPosition({ startX + c * tileSize, startY + r * tileSize });
+                    tile.setFillColor(((r + c) % 2 == 0) ? lightSquare : darkSquare);
+                    window.draw(tile);
+
+                    char piece = savedBoard[r][c];
+                    if (piece != '.' && pieceTextures[(int)piece].getSize().x > 0) {
+                        Sprite sprite(pieceTextures[(int)piece]);
+                        Vector2u sz = pieceTextures[(int)piece].getSize();
+                        sprite.setScale({ tileSize / sz.x, tileSize / sz.y });
+                        sprite.setPosition({ startX + c * tileSize, startY + r * tileSize });
+                        window.draw(sprite);
+                    }
+                }
+            }
+            btnPlaySaved.draw(window, font, mousePos);
+        }
+        btnBackFromLoad.draw(window, font, mousePos);
+    }
+
+    // Screen: Match Statistics & History
+    void renderMoveHistory(RenderWindow& window, Font& font, const vector<string>& stats, Vector2f mousePos) const {
+        Text title(font, "MATCH STATISTICS", 24);
+        title.setFillColor(lightSquare);
+        FloatRect tb = title.getLocalBounds();
+        title.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
+        title.setPosition({ WINDOW_SIZE / 2.f, 45.f });
+        window.draw(title);
+
+        float lineY = 115.f;
+        for (size_t i = max(0, (int)stats.size() - 10); i < stats.size(); ++i) {
+            Text entry(font, to_string(i + 1) + ". " + stats[i], 15);
+            entry.setFillColor(lightSquare);
+            entry.setPosition({ 80.f, lineY });
+            window.draw(entry);
+            lineY += 34.f;
+        }
+        btnBackFromHist.draw(window, font, mousePos);
+    }
+
+    // Right-Click Context Menu Overlay
+    void renderContextMenu(RenderWindow& window, Font& font, Vector2f pos) const {
+        string optionLabels[TOTAL_OPTIONS] = { "Save Game", "Load Game", "Log Stats", "Back to Menu" };
+
+        RectangleShape menuBox({ MENU_WIDTH, OPTION_HEIGHT * TOTAL_OPTIONS });
+        menuBox.setPosition(pos);
+        menuBox.setFillColor(Color(40, 40, 40, 240));
+        menuBox.setOutlineColor(Color::White);
+        menuBox.setOutlineThickness(1.f);
+        window.draw(menuBox);
+
+        for (int i = 0; i < TOTAL_OPTIONS; i++) {
+            Text optionText(font, optionLabels[i], 14);
+            optionText.setFillColor(Color::White);
+            optionText.setPosition({ pos.x + 10.f, pos.y + (i * OPTION_HEIGHT) + 8.f });
+            window.draw(optionText);
+        }
+    }
+
+    // Context Menu Option Hit Test (returns 0: Save, 1: Load, 2: Log Stats, 3: Back to Menu, or -1 if outside)
+    int getContextMenuOption(Vector2f mousePos, Vector2f contextMenuPos) const {
+        if (mousePos.x >= contextMenuPos.x && mousePos.x <= contextMenuPos.x + MENU_WIDTH &&
+            mousePos.y >= contextMenuPos.y && mousePos.y <= contextMenuPos.y + (OPTION_HEIGHT * TOTAL_OPTIONS)) {
+            return static_cast<int>((mousePos.y - contextMenuPos.y) / OPTION_HEIGHT);
+        }
+        return -1;
+    }
+
+    // Screen: In-Game (Chessboard + Context Menu if open)
+    void renderInGame(RenderWindow& window, Font& font, const char board[8][8],
+        int selectedRow, int selectedCol, bool hasSelection,
+        bool isContextMenuOpen, Vector2f contextMenuPos) const {
+        renderChessBoard(window, board, selectedRow, selectedCol, hasSelection);
+
+        if (isContextMenuOpen) {
+            renderContextMenu(window, font, contextMenuPos);
+        }
+    }
+
+    // Temporary Notification Overlay Toast
+    void renderToastNotification(RenderWindow& window, Font& font, const string& msg, float elapsed, float fadeDuration = 1.6f) const {
+        if (elapsed >= fadeDuration || msg.empty()) return;
+
+        float alphaRatio = 1.0f - (elapsed / fadeDuration);
+        uint8_t alpha = static_cast<uint8_t>(255 * alphaRatio);
+
+        RectangleShape toastBox({ 300.f, 46.f });
+        toastBox.setPosition({ (WINDOW_SIZE - 300.f) / 2.f, (WINDOW_SIZE - 46.f) / 2.f });
+        toastBox.setFillColor(Color(20, 20, 20, static_cast<uint8_t>(220 * alphaRatio)));
+        toastBox.setOutlineColor(Color(255, 255, 255, alpha));
+        toastBox.setOutlineThickness(1.5f);
+        window.draw(toastBox);
+
+        Text toastText(font, msg, 16);
+        toastText.setFillColor(Color(255, 255, 255, alpha));
+        FloatRect tb = toastText.getLocalBounds();
+        toastText.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
+        toastText.setPosition({ WINDOW_SIZE / 2.f, WINDOW_SIZE / 2.f });
+        window.draw(toastText);
+    }
+};
+
+// ============================================================================
+// GAME SESSION DATA STATE
+// ============================================================================
+
+struct GameSession {
+    MenuState state = MenuState::GroupNameInput;
+    string groupName = "";
+
+    // Active Board State
+    char activeBoard[8][8];
+    int activeMoves = 0;
+
+    // Selection Tracking
+    int selectedRow = -1;
+    int selectedCol = -1;
+    bool hasSelection = false;
+
+    // Saved Game Cache (for Preview)
+    char savedBoard[8][8];
+    int savedMoves = 0;
+    bool hasSaveData = false;
+
+    // Context Menu State
+    bool isContextMenuOpen = false;
+    Vector2f contextMenuPos{ 0.f, 0.f };
+
+    // Toast Notification Trackers
+    string notificationMsg = "";
+    sf::Clock notificationClock;
+    sf::Clock cursorClock;
+
+    void notify(const string& msg) {
+        notificationMsg = msg;
+        notificationClock.restart();
+    }
+
+    void resetToNewGame() {
+        memcpy(activeBoard, INITIAL_BOARD, sizeof(INITIAL_BOARD));
+        activeMoves = 0;
+        hasSelection = false;
+        selectedRow = -1;
+        selectedCol = -1;
+        isContextMenuOpen = false;
+        state = MenuState::InGame;
+    }
+
+    void loadSavedToActive() {
+        memcpy(activeBoard, savedBoard, sizeof(savedBoard));
+        activeMoves = savedMoves;
+        hasSelection = false;
+        selectedRow = -1;
+        selectedCol = -1;
+        isContextMenuOpen = false;
+        state = MenuState::InGame;
+    }
+};
+
+// ============================================================================
+// EVENT & INPUT PROCESSING METHODS
+// ============================================================================
+
+// Window viewport aspect ratio adjustment on resize
+void updateWindowView(RenderWindow& window, const Event::Resized* resized) {
+    float w = static_cast<float>(resized->size.x);
+    float h = static_cast<float>(resized->size.y);
+    FloatRect viewport({}, { 1.f, 1.f });
+
+    if (w > h) {
+        viewport.size.x = h / w;
+        viewport.position.x = (1.f - viewport.size.x) / 2.f;
+    }
+    else {
+        viewport.size.y = w / h;
+        viewport.position.y = (1.f - viewport.size.y) / 2.f;
+    }
+    View fixedView(FloatRect({}, { static_cast<float>(WINDOW_SIZE), static_cast<float>(WINDOW_SIZE) }));
+    fixedView.setViewport(viewport);
+    window.setView(fixedView);
+}
+
+// Group name keyboard typing handler
+void handleTextInput(GameSession& session, const Event::TextEntered* textEvent) {
+    char32_t unicode = textEvent->unicode;
+    if (unicode == 8) { // Backspace
+        if (!session.groupName.empty()) session.groupName.pop_back();
+    }
+    else if (unicode == 13 || unicode == 10) { // Enter key confirms
+        if (!session.groupName.empty()) {
+            session.state = MenuState::MainMenu;
+            session.notify("Welcome, Team " + session.groupName + "!");
+        }
+    }
+    else if (unicode >= 32 && unicode < 127 && session.groupName.size() < 18) {
+        session.groupName += static_cast<char>(unicode);
+    }
+}
+
+// Right-click context menu action dispatcher
+void handleContextMenuAction(GameSession& session, int option) {
+    switch (option) {
+    case 0: // Save Game
+        if (saveGame("savegame.txt", session.activeBoard, session.activeMoves)) {
+            session.notify("Game Saved!");
+        }
+        break;
+    case 1: // Load Game
+        if (loadSaveGame(session.activeBoard, session.activeMoves)) {
+            session.hasSelection = false;
+            session.selectedRow = -1;
+            session.selectedCol = -1;
+            session.notify("Game Loaded!");
+        }
+        break;
+    case 2: // Log Stats
+        if (saveGameStats("game_stats.txt", session.groupName, session.activeMoves)) {
+            session.notify("Stats Logged!");
+        }
+        break;
+    case 3: // Back to Menu
+        session.state = MenuState::MainMenu;
+        session.hasSelection = false;
+        session.selectedRow = -1;
+        session.selectedCol = -1;
+        session.notify("Returned to Menu");
+        break;
+    }
+}
+
+// Chessboard click and piece movement logic
+void handleInGamePieceMove(GameSession& session, Vector2f mousePos) {
+    const float tileSize = WINDOW_SIZE / 8.f;
+    int col = static_cast<int>(mousePos.x / tileSize);
+    int row = static_cast<int>(mousePos.y / tileSize);
+
+    if (row < 0 || row >= 8 || col < 0 || col >= 8) return;
+
+    PieceColour targetColour = getPieceColour(row, col, session.activeBoard);
+
+    if (!session.hasSelection) {
+        if (targetColour != PieceColour::empty && targetColour != PieceColour::invalid) {
+            session.selectedRow = row;
+            session.selectedCol = col;
+            session.hasSelection = true;
+        }
+    }
+    else {
+        if (session.selectedRow == row && session.selectedCol == col) {
+            session.hasSelection = false; // Deselect on clicking same tile
+        }
+        else {
+            PieceColour sourceColour = getPieceColour(session.selectedRow, session.selectedCol, session.activeBoard);
+            // Friendly fire check: Prevent capturing own piece
+            if (sourceColour != targetColour) {
+                session.activeBoard[row][col] = session.activeBoard[session.selectedRow][session.selectedCol];
+                session.activeBoard[session.selectedRow][session.selectedCol] = '.';
+                session.activeMoves++;
+            }
+            session.hasSelection = false;
+        }
+    }
+}
+
+// Master mouse click event router
+void handleMouseClicks(RenderWindow& window, GameSession& session, const ChessUI& ui, Vector2f mousePos, Mouse::Button button) {
+    // Right click inside gameplay opens the context menu
+    if (button == Mouse::Button::Right && session.state == MenuState::InGame) {
+        session.isContextMenuOpen = true;
+        session.contextMenuPos = mousePos;
+        return;
+    }
+
+    if (button != Mouse::Button::Left) return;
+
+    switch (session.state) {
+    case MenuState::GroupNameInput:
+        if (ui.btnConfirmGroup.isHovered(mousePos) && !session.groupName.empty()) {
+            session.state = MenuState::MainMenu;
+            session.notify("Welcome, Team " + session.groupName + "!");
+        }
+        break;
+
+    case MenuState::MainMenu:
+        if (ui.btnStart.isHovered(mousePos)) {
+            session.resetToNewGame();
+        }
+        else if (ui.btnLoad.isHovered(mousePos)) {
+            session.hasSaveData = loadSaveGame(session.savedBoard, session.savedMoves);
+            session.state = MenuState::LoadGamePreview;
+        }
+        else if (ui.btnHistory.isHovered(mousePos)) {
+            session.state = MenuState::MoveHistory;
+        }
+        else if (ui.btnExit.isHovered(mousePos)) {
+            window.close();
+        }
+        break;
+
+    case MenuState::LoadGamePreview:
+        if (ui.btnBackFromLoad.isHovered(mousePos)) {
+            session.state = MenuState::MainMenu;
+        }
+        else if (ui.btnPlaySaved.isHovered(mousePos)) {
+            session.loadSavedToActive();
+        }
+        break;
+
+    case MenuState::MoveHistory:
+        if (ui.btnBackFromHist.isHovered(mousePos)) {
+            session.state = MenuState::MainMenu;
+        }
+        break;
+
+    case MenuState::InGame:
+        if (session.isContextMenuOpen) {
+            int option = ui.getContextMenuOption(mousePos, session.contextMenuPos);
+            if (option >= 0) {
+                handleContextMenuAction(session, option);
+            }
+            session.isContextMenuOpen = false;
+        }
+        else {
+            handleInGamePieceMove(session, mousePos);
+        }
+        break;
+    }
+}
+
+// Master rendering pipeline method
+void renderApp(RenderWindow& window, const GameSession& session, const ChessUI& ui, Vector2f mousePos) {
+    window.clear(bgDark);
+
+    if (session.state != MenuState::InGame) {
+        ui.renderTopBorder(window);
+    }
+
+    switch (session.state) {
+    case MenuState::GroupNameInput: {
+        bool showCursor = (static_cast<int>(session.cursorClock.getElapsedTime().asSeconds() * 2) % 2 == 0);
+        ui.renderGroupNameInput(window, menuFont, session.groupName, showCursor, mousePos);
+        break;
+    }
+    case MenuState::MainMenu:
+        ui.renderMainMenu(window, menuFont, session.groupName, mousePos);
+        break;
+    case MenuState::LoadGamePreview:
+        ui.renderLoadGamePreview(window, menuFont, session.hasSaveData, session.savedBoard, mousePos);
+        break;
+    case MenuState::MoveHistory: {
+        vector<string> stats = loadStatsLines();
+        ui.renderMoveHistory(window, menuFont, stats, mousePos);
+        break;
+    }
+    case MenuState::InGame:
+        ui.renderInGame(window, menuFont, session.activeBoard,
+            session.selectedRow, session.selectedCol, session.hasSelection,
+            session.isContextMenuOpen, session.contextMenuPos);
+        break;
+    }
+
+    // Toast Notification Overlay
+    ui.renderToastNotification(window, menuFont, session.notificationMsg, session.notificationClock.getElapsedTime().asSeconds());
+
+    window.display();
+}
+
+// ============================================================================
 // MAIN APPLICATION
 // ============================================================================
 
@@ -219,48 +734,8 @@ int main() {
     RenderWindow window(VideoMode({ WINDOW_SIZE, WINDOW_SIZE }), "UTAR Chess - Unified System");
     window.setFramerateLimit(60);
 
-    MenuState state = MenuState::GroupNameInput;
-    string groupName = "";
-
-    // Board States
-    char activeBoard[8][8];
-    int activeMoves = 0;
-
-    // Selection Tracking
-    int selectedRow = -1;
-    int selectedCol = -1;
-    bool hasSelection = false;
-
-    // Saved Game Cache
-    char savedBoard[8][8];
-    int savedMoves = 0;
-    bool hasSaveData = false;
-
-    // Right-Click Context Menu State
-    bool isContextMenuOpen = false;
-    Vector2f contextMenuPos(0.f, 0.f);
-
-    // Toast Notification Trackers
-    string notificationMsg = "";
-    sf::Clock notificationClock;
-    sf::Clock cursorClock;
-
-    // Main UI Buttons
-    const float btnWidth = 320.f;
-    const float btnHeight = 46.f;
-    const float btnX = (WINDOW_SIZE - btnWidth) / 2.f;
-
-    MenuButton btnStart{ { { btnX, 230.f }, { btnWidth, btnHeight } }, "1. Start New Game" };
-    MenuButton btnLoad{ { { btnX, 290.f }, { btnWidth, btnHeight } }, "2. Load Game" };
-    MenuButton btnHistory{ { { btnX, 350.f }, { btnWidth, btnHeight } }, "3. Display Move History" };
-    MenuButton btnExit{ { { btnX, 410.f }, { btnWidth, btnHeight } }, "4. Exit" };
-
-    MenuButton btnBackFromLoad{ { { (WINDOW_SIZE - 200.f) / 2.f, 560.f }, { 200.f, 40.f } }, "Back to Menu" };
-    MenuButton btnPlaySaved{ { { (WINDOW_SIZE - 200.f) / 2.f, 510.f }, { 200.f, 40.f } }, "Play Game" };
-    MenuButton btnBackFromHist{ { { (WINDOW_SIZE - 200.f) / 2.f, 560.f }, { 200.f, 40.f } }, "Back to Menu" };
-    MenuButton btnConfirmGroup{ { { (WINDOW_SIZE - 180.f) / 2.f, 380.f }, { 180.f, 44.f } }, "Confirm" };
-
-    MenuButton btnReturnMenu{ { { 10.f, 10.f }, { 110.f, 32.f } }, "< Menu" };
+    GameSession session;
+    ChessUI ui;
 
     while (window.isOpen()) {
         Vector2i mousePixel = Mouse::getPosition(window);
@@ -270,340 +745,21 @@ int main() {
             if (event->is<Event::Closed>()) {
                 window.close();
             }
-
-            // Aspect ratio scaling on resize
-            if (const auto* resized = event->getIf<Event::Resized>()) {
-                float w = static_cast<float>(resized->size.x);
-                float h = static_cast<float>(resized->size.y);
-                FloatRect viewport({}, { 1.f, 1.f });
-
-                if (w > h) {
-                    viewport.size.x = h / w;
-                    viewport.position.x = (1.f - viewport.size.x) / 2.f;
-                }
-                else {
-                    viewport.size.y = w / h;
-                    viewport.position.y = (1.f - viewport.size.y) / 2.f;
-                }
-                View fixedView(FloatRect({}, { static_cast<float>(WINDOW_SIZE), static_cast<float>(WINDOW_SIZE) }));
-                fixedView.setViewport(viewport);
-                window.setView(fixedView);
+            else if (const auto* resized = event->getIf<Event::Resized>()) {
+                updateWindowView(window, resized);
             }
-
-            // Keyboard Text Input for Group Name
-            if (state == MenuState::GroupNameInput) {
+            else if (session.state == MenuState::GroupNameInput) {
                 if (const auto* textEvent = event->getIf<Event::TextEntered>()) {
-                    char32_t unicode = textEvent->unicode;
-                    if (unicode == 8) {
-                        if (!groupName.empty()) groupName.pop_back();
-                    }
-                    else if (unicode == 13 || unicode == 10) {
-                        if (!groupName.empty()) {
-                            state = MenuState::MainMenu;
-                            notificationMsg = "Welcome, Team " + groupName + "!";
-                            notificationClock.restart();
-                        }
-                    }
-                    else if (unicode >= 32 && unicode < 127 && groupName.size() < 18) {
-                        groupName += static_cast<char>(unicode);
-                    }
+                    handleTextInput(session, textEvent);
                 }
             }
 
-            // Mouse Click Handling
             if (const auto* click = event->getIf<Event::MouseButtonPressed>()) {
-                if (click->button == Mouse::Button::Right && state == MenuState::InGame) {
-                    isContextMenuOpen = true;
-                    contextMenuPos = mousePos;
-                }
-                else if (click->button == Mouse::Button::Left) {
-                    if (state == MenuState::GroupNameInput) {
-                        if (btnConfirmGroup.isHovered(mousePos) && !groupName.empty()) {
-                            state = MenuState::MainMenu;
-                            notificationMsg = "Welcome, Team " + groupName + "!";
-                            notificationClock.restart();
-                        }
-                    }
-                    else if (state == MenuState::MainMenu) {
-                        if (btnStart.isHovered(mousePos)) {
-                            memcpy(activeBoard, INITIAL_BOARD, sizeof(INITIAL_BOARD));
-                            activeMoves = 0;
-                            hasSelection = false;
-                            isContextMenuOpen = false;
-                            state = MenuState::InGame;
-                        }
-                        else if (btnLoad.isHovered(mousePos)) {
-                            hasSaveData = loadSaveGame(savedBoard, savedMoves);
-                            state = MenuState::LoadGamePreview;
-                        }
-                        else if (btnHistory.isHovered(mousePos)) {
-                            state = MenuState::MoveHistory;
-                        }
-                        else if (btnExit.isHovered(mousePos)) {
-                            window.close();
-                        }
-                    }
-                    else if (state == MenuState::LoadGamePreview) {
-                        if (btnBackFromLoad.isHovered(mousePos)) {
-                            state = MenuState::MainMenu;
-                        }
-                        else if (btnPlaySaved.isHovered(mousePos)) {
-                            memcpy(activeBoard, savedBoard, sizeof(savedBoard));
-                            activeMoves = savedMoves;
-                            hasSelection = false;
-                            isContextMenuOpen = false;
-                            state = MenuState::InGame;
-                        }
-                    }
-                    else if (state == MenuState::MoveHistory) {
-                        if (btnBackFromHist.isHovered(mousePos)) {
-                            state = MenuState::MainMenu;
-                        }
-                    }
-                    else if (state == MenuState::InGame) {
-                        // Priority 1: Handle Context Menu Clicking
-                        if (isContextMenuOpen) {
-                            if (mousePos.x >= contextMenuPos.x && mousePos.x <= contextMenuPos.x + MENU_WIDTH &&
-                                mousePos.y >= contextMenuPos.y && mousePos.y <= contextMenuPos.y + (OPTION_HEIGHT * TOTAL_OPTIONS)) {
-
-                                int option = static_cast<int>((mousePos.y - contextMenuPos.y) / OPTION_HEIGHT);
-                                switch (option) {
-                                case 0:
-                                    if (saveGame("savegame.txt", activeBoard, activeMoves)) {
-                                        notificationMsg = "Game Saved!";
-                                        notificationClock.restart();
-                                    }
-                                    break;
-                                case 1:
-                                    if (loadSaveGame(activeBoard, activeMoves)) {
-                                        notificationMsg = "Game Loaded!";
-                                        notificationClock.restart();
-                                    }
-                                    break;
-                                case 2:
-                                    if (saveGameStats("game_stats.txt", groupName, activeMoves)) {
-                                        notificationMsg = "Stats Logged!";
-                                        notificationClock.restart();
-                                    }
-                                    break;
-                                }
-                            }
-                            isContextMenuOpen = false;
-                        }
-                        // Priority 2: In-Game Return Button
-                        else if (btnReturnMenu.isHovered(mousePos)) {
-                            state = MenuState::MainMenu;
-                            hasSelection = false;
-                        }
-                        // Priority 3: Board Interactions
-                        else {
-                            const float tileSize = WINDOW_SIZE / 8.f;
-                            int col = static_cast<int>(mousePos.x / tileSize);
-                            int row = static_cast<int>(mousePos.y / tileSize);
-
-                            if (row >= 0 && row < 8 && col >= 0 && col < 8) {
-                                PieceColour targetColour = getPieceColour(row, col, activeBoard);
-
-                                if (!hasSelection) {
-                                    if (targetColour != PieceColour::empty && targetColour != PieceColour::invalid) {
-                                        selectedRow = row;
-                                        selectedCol = col;
-                                        hasSelection = true;
-                                    }
-                                }
-                                else {
-                                    if (selectedRow == row && selectedCol == col) {
-                                        hasSelection = false; // Deselect
-                                    }
-                                    else {
-                                        PieceColour sourceColour = getPieceColour(selectedRow, selectedCol, activeBoard);
-                                        // Friendly fire check: Prevent capturing own piece
-                                        if (sourceColour != targetColour) {
-                                            activeBoard[row][col] = activeBoard[selectedRow][selectedCol];
-                                            activeBoard[selectedRow][selectedCol] = '.';
-                                            activeMoves++;
-                                        }
-                                        hasSelection = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                handleMouseClicks(window, session, ui, mousePos, click->button);
             }
         }
 
-        // --- RENDERING PIPELINE ---
-        window.clear(bgDark);
-
-        if (state != MenuState::InGame) {
-            const float checkSize = 20.f;
-            for (unsigned int i = 0; i < WINDOW_SIZE / (unsigned int)checkSize; ++i) {
-                RectangleShape chk({ checkSize, 6.f });
-                chk.setPosition({ (float)i * checkSize, 0.f });
-                chk.setFillColor((i % 2 == 0) ? lightSquare : darkSquare);
-                window.draw(chk);
-            }
-        }
-
-        if (state == MenuState::GroupNameInput) {
-            RectangleShape card({ 440.f, 320.f });
-            card.setPosition({ (WINDOW_SIZE - 440.f) / 2.f, 160.f });
-            card.setFillColor(panelBg);
-            card.setOutlineColor(darkSquare);
-            card.setOutlineThickness(2.f);
-            window.draw(card);
-
-            Text header(menuFont, "WELCOME TO CHESS SYSTEM", 22);
-            header.setFillColor(lightSquare);
-            FloatRect hb = header.getLocalBounds();
-            header.setOrigin({ hb.position.x + hb.size.x / 2.f, hb.position.y + hb.size.y / 2.f });
-            header.setPosition({ WINDOW_SIZE / 2.f, 205.f });
-            window.draw(header);
-
-            Text prompt(menuFont, "Enter Group / Team Name to Start:", 15);
-            prompt.setFillColor(Color(200, 200, 200));
-            FloatRect pb = prompt.getLocalBounds();
-            prompt.setOrigin({ pb.position.x + pb.size.x / 2.f, pb.position.y + pb.size.y / 2.f });
-            prompt.setPosition({ WINDOW_SIZE / 2.f, 255.f });
-            window.draw(prompt);
-
-            RectangleShape inputBox({ 320.f, 44.f });
-            inputBox.setPosition({ (WINDOW_SIZE - 320.f) / 2.f, 295.f });
-            inputBox.setFillColor(Color(25, 28, 22));
-            inputBox.setOutlineColor(highlightColor);
-            inputBox.setOutlineThickness(1.5f);
-            window.draw(inputBox);
-
-            string displayText = groupName;
-            if (static_cast<int>(cursorClock.getElapsedTime().asSeconds() * 2) % 2 == 0) displayText += "_";
-
-            Text inputText(menuFont, displayText, 18);
-            inputText.setFillColor(Color::White);
-            inputText.setPosition({ (WINDOW_SIZE - 300.f) / 2.f, 307.f });
-            window.draw(inputText);
-
-            btnConfirmGroup.draw(window, menuFont, mousePos);
-        }
-        else if (state == MenuState::MainMenu) {
-            Text title(menuFont, "CHESS SYSTEM", 32);
-            title.setFillColor(lightSquare);
-            FloatRect tb = title.getLocalBounds();
-            title.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
-            title.setPosition({ WINDOW_SIZE / 2.f, 75.f });
-            window.draw(title);
-
-            Text sub(menuFont, "Team: [" + groupName + "]", 18);
-            sub.setFillColor(highlightColor);
-            FloatRect sb = sub.getLocalBounds();
-            sub.setOrigin({ sb.position.x + sb.size.x / 2.f, sb.position.y + sb.size.y / 2.f });
-            sub.setPosition({ WINDOW_SIZE / 2.f, 120.f });
-            window.draw(sub);
-
-            btnStart.draw(window, menuFont, mousePos);
-            btnLoad.draw(window, menuFont, mousePos);
-            btnHistory.draw(window, menuFont, mousePos);
-            btnExit.draw(window, menuFont, mousePos);
-        }
-        else if (state == MenuState::LoadGamePreview) {
-            Text title(menuFont, "SAVED GAME PREVIEW", 24);
-            title.setFillColor(lightSquare);
-            FloatRect tb = title.getLocalBounds();
-            title.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
-            title.setPosition({ WINDOW_SIZE / 2.f, 45.f });
-            window.draw(title);
-
-            if (hasSaveData) {
-                const float tileSize = 42.f;
-                const float startX = (WINDOW_SIZE - tileSize * 8.f) / 2.f;
-                const float startY = 115.f;
-
-                for (int r = 0; r < 8; r++) {
-                    for (int c = 0; c < 8; c++) {
-                        RectangleShape tile({ tileSize, tileSize });
-                        tile.setPosition({ startX + c * tileSize, startY + r * tileSize });
-                        tile.setFillColor(((r + c) % 2 == 0) ? lightSquare : darkSquare);
-                        window.draw(tile);
-
-                        char piece = savedBoard[r][c];
-                        if (piece != '.' && pieceTextures[(int)piece].getSize().x > 0) {
-                            Sprite sprite(pieceTextures[(int)piece]);
-                            Vector2u sz = pieceTextures[(int)piece].getSize();
-                            sprite.setScale({ tileSize / sz.x, tileSize / sz.y });
-                            sprite.setPosition({ startX + c * tileSize, startY + r * tileSize });
-                            window.draw(sprite);
-                        }
-                    }
-                }
-                btnPlaySaved.draw(window, menuFont, mousePos);
-            }
-            btnBackFromLoad.draw(window, menuFont, mousePos);
-        }
-        else if (state == MenuState::MoveHistory) {
-            Text title(menuFont, "MATCH STATISTICS", 24);
-            title.setFillColor(lightSquare);
-            FloatRect tb = title.getLocalBounds();
-            title.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
-            title.setPosition({ WINDOW_SIZE / 2.f, 45.f });
-            window.draw(title);
-
-            vector<string> stats = loadStatsLines();
-            float lineY = 115.f;
-            for (size_t i = max(0, (int)stats.size() - 10); i < stats.size(); ++i) {
-                Text entry(menuFont, to_string(i + 1) + ". " + stats[i], 15);
-                entry.setFillColor(lightSquare);
-                entry.setPosition({ 80.f, lineY });
-                window.draw(entry);
-                lineY += 34.f;
-            }
-            btnBackFromHist.draw(window, menuFont, mousePos);
-        }
-        else if (state == MenuState::InGame) {
-            renderChessBoard(window, activeBoard, selectedRow, selectedCol, hasSelection);
-            btnReturnMenu.draw(window, menuFont, mousePos);
-
-            // Right-Click Overlay Context Menu
-            if (isContextMenuOpen) {
-                string optionLabels[TOTAL_OPTIONS] = { "Save Game", "Load Game", "Log Stats" };
-
-                RectangleShape menuBox({ MENU_WIDTH, OPTION_HEIGHT * TOTAL_OPTIONS });
-                menuBox.setPosition(contextMenuPos);
-                menuBox.setFillColor(Color(40, 40, 40, 240));
-                menuBox.setOutlineColor(Color::White);
-                menuBox.setOutlineThickness(1.f);
-                window.draw(menuBox);
-
-                for (int i = 0; i < TOTAL_OPTIONS; i++) {
-                    Text optionText(menuFont, optionLabels[i], 14);
-                    optionText.setFillColor(Color::White);
-                    optionText.setPosition({ contextMenuPos.x + 10.f, contextMenuPos.y + (i * OPTION_HEIGHT) + 8.f });
-                    window.draw(optionText);
-                }
-            }
-        }
-
-        // Notification Overlay Toast
-        float elapsed = notificationClock.getElapsedTime().asSeconds();
-        if (elapsed < 1.6f && !notificationMsg.empty()) {
-            float alphaRatio = 1.0f - (elapsed / 1.6f);
-            uint8_t alpha = static_cast<uint8_t>(255 * alphaRatio);
-
-            RectangleShape toastBox({ 300.f, 46.f });
-            toastBox.setPosition({ (WINDOW_SIZE - 300.f) / 2.f, (WINDOW_SIZE - 46.f) / 2.f });
-            toastBox.setFillColor(Color(20, 20, 20, static_cast<uint8_t>(220 * alphaRatio)));
-            toastBox.setOutlineColor(Color(255, 255, 255, alpha));
-            toastBox.setOutlineThickness(1.5f);
-            window.draw(toastBox);
-
-            Text toastText(menuFont, notificationMsg, 16);
-            toastText.setFillColor(Color(255, 255, 255, alpha));
-            FloatRect tb = toastText.getLocalBounds();
-            toastText.setOrigin({ tb.position.x + tb.size.x / 2.f, tb.position.y + tb.size.y / 2.f });
-            toastText.setPosition({ WINDOW_SIZE / 2.f, WINDOW_SIZE / 2.f });
-            window.draw(toastText);
-        }
-
-        window.display();
+        renderApp(window, session, ui, mousePos);
     }
 
     return 0;
