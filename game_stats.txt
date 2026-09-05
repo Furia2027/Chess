@@ -1,9 +1,4 @@
-Winner: White | Total Moves: 4
-Winner: Black | Total Moves: 6
-Winner: black | Total Moves: 6
-Winner: Match_End | Total Moves: 1
 Winner: Match_End | Total Moves: 2
-Winner: Match_End | Total Moves: 4
 Winner: Match_End | Total Moves: 1
 Winner: Match_End | Total Moves: 2
 Winner: Match_End | Total Moves: 2
