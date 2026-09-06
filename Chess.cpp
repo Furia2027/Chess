@@ -63,6 +63,8 @@ enum class MenuState {
 struct GameSession;
 
 // Forward declarations for chess logic functions
+string getBoardStateString(const GameSession& session);
+bool canSideDeliverMate(PieceColour side, const char board[8][8]);
 bool findKing(PieceColour kingColor, const char board[8][8], int& outRow, int& outCol);
 bool isSquareAttacked(int targetRow, int targetCol, PieceColour attackingSide, const char board[8][8]);
 bool isKingInCheck(PieceColour kingColor, const char board[8][8]);
@@ -106,6 +108,7 @@ struct Move {
     int fromRow, fromCol;
     int toRow, toCol;
     char captured;
+    int halfMoveClock; // Half Move Clock for undo support
 };
 
 // Timer structure to manage time limits for White and Black players
@@ -125,7 +128,7 @@ void turnCounter(int& turn) {
 
 // Stores move details into history vector and outputs details to console
 void recordMove(char piece, int fromRow, int fromCol, int toRow, int toCol, char captured, int& turn) {
-    Move thisMove = { piece, fromRow, fromCol, toRow, toCol, captured };
+    Move thisMove = { piece, fromRow, fromCol, toRow, toCol, captured, 0};
     moveHistory.push_back(thisMove);
     cout << turn << ". " << (isupper(piece) ? "White " : "Black ") << piece
         << " (" << fromRow << "," << fromCol << ") -> ("
@@ -163,6 +166,40 @@ string formatTime(int totalSeconds) {
 // Checks if specified player timer has reached zero
 bool hasTimedOut(const ChessClock& gameClock, bool isWhite) {
     return isWhite ? gameClock.whiteSecondsLeft <= 0 : gameClock.blackSecondsLeft <= 0;
+}
+
+
+// Writes current board layout and turn counter to save file
+bool saveGame(const string& filename, char board[8][8], int moves) {
+    ofstream file(filename);
+    if (!file.is_open()) return false;
+    file << moves << endl;
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) {
+            file << board[r][c] << " ";
+        }
+        file << endl;
+    }
+    return true;
+}
+
+// Reads saved board layout and turn counter from file
+bool loadSaveGame(char board[8][8], int& moves) {
+    ifstream file("savegame.txt");
+    if (!file.is_open()) return false;
+    file >> moves;
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) file >> board[r][c];
+    }
+    return true;
+}
+
+// Appends game outcome results and move counts to match statistics log file
+bool saveGameStats(const string& filename, const string& winner, int moves) {
+    ofstream file(filename, ios::app);
+    if (!file.is_open()) return false;
+    file << "Winner: " << winner << " | Total Moves: " << moves << endl;
+    return true;
 }
 
 // Holds complete active game state, saved state, selections, and flags
@@ -216,6 +253,9 @@ struct GameSession {
 
     bool isGameOver = false;
 
+    int halfMoveClock = 0;               // Tracks half-moves since last capture or pawn move
+    vector<string> boardHistory;         // Tracks board states for threefold repetition
+
     // Displays temporary toast notification on UI
     void notify(const string& msg) {
         notificationMsg = msg;
@@ -226,9 +266,9 @@ struct GameSession {
     void resetToNewGame() {
         memcpy(activeBoard, INITIAL_BOARD, sizeof(INITIAL_BOARD));
         activeMoves = 1;
+        halfMoveClock = 0;
         hasSelection = false;
-        selectedRow = -1;
-        selectedCol = -1;
+        selectedRow = -1; selectedCol = -1;
         hasLastMove = false;
         lastFromRow = -1; lastFromCol = -1;
         lastToRow = -1;   lastToCol = -1;
@@ -240,6 +280,9 @@ struct GameSession {
         state = MenuState::InGame;
 
         moveHistory.clear();
+        boardHistory.clear();
+        boardHistory.push_back(getBoardStateString(*this));
+
         clock1.whiteSecondsLeft = 600;
         clock1.blackSecondsLeft = 600;
         startTurnTimer(clock1);
@@ -269,7 +312,19 @@ struct GameSession {
 // Finalizes move execution: records history, adjusts timers, and updates session
 void completeMove(char piece, int fromRow, int fromCol, int toRow, int toCol, char captured, int& turn, GameSession& session) {
     bool wasWhiteTurn = (turn % 2 == 1);
-    recordMove(piece, fromRow, fromCol, toRow, toCol, captured, turn);
+
+    // Update 50-move rule counter
+    if (tolower(piece) == 'p' || captured != '.') {
+        session.halfMoveClock = 0;
+    }
+    else {
+        session.halfMoveClock++;
+    }
+
+    // Record move
+    Move thisMove = { piece, fromRow, fromCol, toRow, toCol, captured, session.halfMoveClock };
+    moveHistory.push_back(thisMove);
+
     stopTurnTimer(clock1, wasWhiteTurn);
     turnCounter(turn);
     startTurnTimer(clock1);
@@ -279,6 +334,97 @@ void completeMove(char piece, int fromRow, int fromCol, int toRow, int toCol, ch
     session.lastFromCol = fromCol;
     session.lastToRow = toRow;
     session.lastToCol = toCol;
+
+    // 1. Check 50-Move Rule (100 half-moves without pawn move or capture)
+    if (session.halfMoveClock >= 100) {
+        session.isGameOver = true;
+        session.notify("Draw: 50-Move Rule!");
+        saveGameStats("game_stats.txt", "Draw (50-Move Rule)", session.activeMoves);
+        return;
+    }
+
+    // 2. Check Threefold Repetition
+    string currentState = getBoardStateString(session);
+    session.boardHistory.push_back(currentState);
+    int repetitionCount = count(session.boardHistory.begin(), session.boardHistory.end(), currentState);
+
+    if (repetitionCount >= 3) {
+        session.isGameOver = true;
+        session.notify("Draw: Threefold Repetition!");
+        saveGameStats("game_stats.txt", "Draw (3-Fold Repetition)", session.activeMoves);
+        return;
+    }
+
+    // 3. Check Insufficient Material Draw
+    if (isInsufficientChess(session.activeBoard)) {
+        session.isGameOver = true;
+        session.notify("Draw: Insufficient Material!");
+        saveGameStats("game_stats.txt", "Draw (Material)", session.activeMoves);
+        return;
+    }
+
+    // 4. Check Checkmate / Stalemate / Check
+    bool nextIsWhite = (session.activeMoves % 2 == 1);
+    PieceColour nextColour = nextIsWhite ? PieceColour::white : PieceColour::black;
+    bool inCheck = isKingInCheck(nextColour, session.activeBoard);
+    bool canMove = hasAnyLegalMoves(nextColour, session);
+
+    if (!canMove) {
+        session.isGameOver = true;
+        if (inCheck) {
+            string winner = nextIsWhite ? "Black" : "White";
+            session.notify(winner + " wins by Checkmate!");
+            saveGameStats("game_stats.txt", winner, session.activeMoves);
+        }
+        else {
+            session.notify("Draw by Stalemate!");
+            saveGameStats("game_stats.txt", "Draw", session.activeMoves);
+        }
+    }
+    else if (inCheck) {
+        session.notify("Check!");
+    }
+}
+
+// Checks if active player's clock has run out of time or handles game-over transition
+void checkClockTimeout(GameSession& session) {
+    if (session.state != MenuState::InGame) return;
+
+    if (session.isGameOver) {
+        if (session.notificationClock.getElapsedTime().asSeconds() >= 15.f) {
+            session.state = MenuState::MainMenu;
+        }
+        return;
+    }
+
+    bool isWhiteTurn = (session.activeMoves % 2 == 1);
+    time_t now = time(nullptr);
+    int elapsed = (clock1.turnStartTime > 0) ? static_cast<int>(now - clock1.turnStartTime) : 0;
+
+    if (isWhiteTurn && (clock1.whiteSecondsLeft - elapsed <= 0)) {
+        session.isGameOver = true;
+        bool blackCanMate = canSideDeliverMate(PieceColour::black, session.activeBoard);
+        if (blackCanMate) {
+            session.notify("Black wins on time!");
+            saveGameStats("game_stats.txt", "Black", session.activeMoves);
+        }
+        else {
+            session.notify("Draw: Timeout with Insufficient Material!");
+            saveGameStats("game_stats.txt", "Draw (Timeout)", session.activeMoves);
+        }
+    }
+    else if (!isWhiteTurn && (clock1.blackSecondsLeft - elapsed <= 0)) {
+        session.isGameOver = true;
+        bool whiteCanMate = canSideDeliverMate(PieceColour::white, session.activeBoard);
+        if (whiteCanMate) {
+            session.notify("White wins on time!");
+            saveGameStats("game_stats.txt", "White", session.activeMoves);
+        }
+        else {
+            session.notify("Draw: Timeout with Insufficient Material!");
+            saveGameStats("game_stats.txt", "Draw (Timeout)", session.activeMoves);
+        }
+    }
 }
 
 // Reverts the last executed move in history and updates board state
@@ -335,39 +481,6 @@ bool undoMoveDirect(GameSession& session) {
     session.isGameOver = false;
     session.isPromoting = false;
     cout << "Undo success." << endl;
-    return true;
-}
-
-// Writes current board layout and turn counter to save file
-bool saveGame(const string& filename, char board[8][8], int moves) {
-    ofstream file(filename);
-    if (!file.is_open()) return false;
-    file << moves << endl;
-    for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) {
-            file << board[r][c] << " ";
-        }
-        file << endl;
-    }
-    return true;
-}
-
-// Reads saved board layout and turn counter from file
-bool loadSaveGame(char board[8][8], int& moves) {
-    ifstream file("savegame.txt");
-    if (!file.is_open()) return false;
-    file >> moves;
-    for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) file >> board[r][c];
-    }
-    return true;
-}
-
-// Appends game outcome results and move counts to match statistics log file
-bool saveGameStats(const string& filename, const string& winner, int moves) {
-    ofstream file(filename, ios::app);
-    if (!file.is_open()) return false;
-    file << "Winner: " << winner << " | Total Moves: " << moves << endl;
     return true;
 }
 
@@ -605,8 +718,8 @@ public:
     // Renders team name input form screen
     void renderGroupNameInput(RenderWindow& window, Font& font, const string& groupName, bool showCursor, Vector2f mousePos) const {
         drawPanel(window, { (WINDOW_SIZE - 440.f) / 2.f, 160.f }, { 440.f, 320.f }, panelBg, darkSquare, 2.f);
-        drawCenteredText(window, font, "WELCOME TO CHESS SYSTEM", 205.f, 22, lightSquare);
-        drawCenteredText(window, font, "Enter Group / Team Name to Start:", 255.f, 15, Color(200, 200, 200));
+        drawCenteredText(window, font, "Chess Game", 205.f, 36, lightSquare);
+        drawCenteredText(window, font, "Enter Team Name to Start:", 255.f, 20, Color(200, 200, 200));
 
         drawPanel(window, { (WINDOW_SIZE - 320.f) / 2.f, 295.f }, { 320.f, 44.f }, Color(25, 28, 22), highlightColor, 1.5f);
 
@@ -620,14 +733,14 @@ public:
 
     // Renders main navigation menu screen
     void renderMainMenu(RenderWindow& window, Font& font, const string& groupName, Vector2f mousePos) const {
-        drawCenteredText(window, font, "CHESS SYSTEM", 75.f, 32, lightSquare);
+        drawCenteredText(window, font, "CHESS GAME", 75.f, 40, lightSquare);
         drawCenteredText(window, font, "Team: [" + groupName + "]", 118.f, 18, highlightColor);
 
         const float alertX = (WINDOW_SIZE - 460.f) / 2.f;
         drawPanel(window, { alertX, 158.f }, { 460.f, 40.f }, Color(40, 48, 35, 230), highlightColor, 1.5f);
         drawPanel(window, { alertX, 158.f }, { 4.f, 40.f }, highlightColor);
 
-        drawCenteredText(window, font, "[!] Right-click during game for menu options (Save/Load/Menu)", 178.f, 13, Color(240, 240, 220), alertX + 460.f / 2.f + 4.f);
+        drawCenteredText(window, font, "[!!!] Right-click during game for menu options (Save/Load/Menu)", 178.f, 16, Color(240, 240, 220), alertX + 460.f / 2.f + 4.f);
 
         btnStart.draw(window, font, mousePos);
         btnLoad.draw(window, font, mousePos);
@@ -678,11 +791,20 @@ public:
         return bounds.contains(mousePos) ? static_cast<int>((mousePos.y - contextMenuPos.y) / OPTION_HEIGHT) : -1;
     }
 
-    // Renders top HUD displaying active player turn and remaining clock timers
-    void renderClockHUD(RenderWindow& window, Font& font, int turn) const {
+    // Renders top HUD displaying active player turn or game-over countdown
+    void renderClockHUD(RenderWindow& window, Font& font, const GameSession& session) const {
+        if (session.isGameOver) {
+            int secondsLeft = max(0, 15 - static_cast<int>(session.notificationClock.getElapsedTime().asSeconds()));
+            string hudStr = session.notificationMsg + " | Menu in: " + to_string(secondsLeft) + "s";
+
+            drawPanel(window, { (WINDOW_SIZE - 460.f) / 2.f, 2.f }, { 460.f, 26.f }, Color(180, 40, 40, 230), highlightColor, 1.5f);
+            drawCenteredText(window, font, hudStr, 14.f, 14, Color::White);
+            return;
+        }
+
         time_t now = time(nullptr);
         int elapsed = (clock1.turnStartTime > 0) ? static_cast<int>(now - clock1.turnStartTime) : 0;
-        bool isWhiteTurn = (turn % 2 == 1);
+        bool isWhiteTurn = (session.activeMoves % 2 == 1);
 
         int currentWhite = clock1.whiteSecondsLeft - (isWhiteTurn ? elapsed : 0);
         int currentBlack = clock1.blackSecondsLeft - (!isWhiteTurn ? elapsed : 0);
@@ -788,14 +910,14 @@ public:
     // Renders active gameplay view combining chessboard, clock HUD, context menu, and promotion dialogs
     void renderInGame(RenderWindow& window, Font& font, const GameSession& session) const {
         renderChessBoard(window, session.activeBoard, &session);
-        renderClockHUD(window, font, session.activeMoves);
+        renderClockHUD(window, font, session);
 
         if (session.isContextMenuOpen) renderContextMenu(window, font, session.contextMenuPos);
         if (session.isPromoting) renderPromotionModal(window, font, session);
     }
 
     // Renders temporary fading toast message notification centered on screen
-    void renderToastNotification(RenderWindow& window, Font& font, const string& msg, float elapsed, float fadeDuration = 1.6f) const {
+    void renderToastNotification(RenderWindow& window, Font& font, const string& msg, float elapsed, float fadeDuration = 2) const {
         if (elapsed >= fadeDuration || msg.empty()) return;
 
         float alphaRatio = 1.0f - (elapsed / fadeDuration);
@@ -888,6 +1010,47 @@ void handleContextMenuAction(GameSession& session, int option) {
         session.notify("Returned to Menu");
         break;
     }
+}
+
+// Determines if a player has enough material to deliver checkmate
+bool canSideDeliverMate(PieceColour side, const char board[8][8]) {
+    int pawns = 0, rooks = 0, queens = 0, bishops = 0, knights = 0;
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) {
+            char p = board[r][c];
+            if (p == '.') continue;
+            if ((side == PieceColour::white && isupper(p)) ||
+                (side == PieceColour::black && islower(p))) {
+                char tp = tolower(p);
+                if (tp == 'p') pawns++;
+                else if (tp == 'r') rooks++;
+                else if (tp == 'q') queens++;
+                else if (tp == 'b') bishops++;
+                else if (tp == 'n') knights++;
+            }
+        }
+    }
+    if (pawns > 0 || rooks > 0 || queens > 0) return true;
+    if (bishops >= 2 || (bishops >= 1 && knights >= 1) || knights >= 2) return true;
+    return false; // Only King, King+1 Knight, or King+1 Bishop remaining
+}
+
+// Generates current board state and turn properties
+string getBoardStateString(const GameSession& session) {
+    string stateStr = "";
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) {
+            stateStr += session.activeBoard[r][c];
+        }
+    }
+    stateStr += (session.activeMoves % 2 == 1) ? " W " : " B ";
+    stateStr += (session.whiteKingMoved ? "1" : "0");
+    stateStr += (session.whiteRookAMoved ? "1" : "0");
+    stateStr += (session.whiteRookHMoved ? "1" : "0");
+    stateStr += (session.blackKingMoved ? "1" : "0");
+    stateStr += (session.blackRookAMoved ? "1" : "0");
+    stateStr += (session.blackRookHMoved ? "1" : "0");
+    return stateStr;
 }
 
 // Validates whether the tiles between target coordinates are empty
@@ -1492,6 +1655,8 @@ int main() {
                 handleMouseClicks(window, session, ui, mousePos, click->button);
             }
         }
+        // Check active clock timers
+        checkClockTimeout(session);
 
         renderApp(window, session, ui, mousePos);
     }
