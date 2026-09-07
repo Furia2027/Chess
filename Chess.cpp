@@ -66,7 +66,7 @@ struct GameSession;
 string getBoardStateString(const GameSession& session);
 bool canSideDeliverMate(PieceColour side, const char board[8][8]);
 bool findKing(PieceColour kingColor, const char board[8][8], int& outRow, int& outCol);
-bool isSquareAttacked(int targetRow, int targetCol, PieceColour attackingSide, const char board[8][8]);
+bool isSquareAttacked(int targetRow, int targetCol, PieceColour attackingSide, const char board[8][8], int ignoreRow = -1, int ignoreCol = -1);
 bool isKingInCheck(PieceColour kingColor, const char board[8][8]);
 bool isMoveValid(int fromRow, int fromCol, int toRow, int toCol, const char board[8][8], int turn, const GameSession* session);
 void renderMoveHints(RenderWindow& window, const GameSession& session);
@@ -1199,14 +1199,89 @@ bool isValidPawnMove(int fromRow, int fromCol, int toRow, int toCol, PieceColour
     return false;
 }
 
-// Locates the King's board coordinates for a given color
+// Checks if a specific board square is targeted by any opposing piece
+// 1. Ray-passable Attack Check (ignores caller King position during ray tracing)
+bool isSquareAttacked(int targetRow, int targetCol, PieceColour attackingSide, const char board[8][8], int ignoreRow, int ignoreCol) {
+    // Pawns
+    int pawnDir = (attackingSide == PieceColour::white) ? 1 : -1;
+    char enemyPawn = (attackingSide == PieceColour::white) ? 'P' : 'p';
+    int pr = targetRow + pawnDir;
+    if (pr >= 0 && pr < 8) {
+        if (targetCol - 1 >= 0 && board[pr][targetCol - 1] == enemyPawn) return true;
+        if (targetCol + 1 < 8 && board[pr][targetCol + 1] == enemyPawn) return true;
+    }
+
+    // Knights
+    char enemyKnight = (attackingSide == PieceColour::white) ? 'N' : 'n';
+    int knightMoves[8][2] = { {-2,-1},{-2,1},{-1,-2},{-1,2},{1,-2},{1,2},{2,-1},{2,1} };
+    for (auto& m : knightMoves) {
+        int nr = targetRow + m[0], nc = targetCol + m[1];
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+            if (board[nr][nc] == enemyKnight) return true;
+        }
+    }
+
+    // Opposing King (1-square radius)
+    char enemyKing = (attackingSide == PieceColour::white) ? 'K' : 'k';
+    for (int dr = -1; dr <= 1; dr++) {
+        for (int dc = -1; dc <= 1; dc++) {
+            if (dr == 0 && dc == 0) continue;
+            int kr = targetRow + dr, kc = targetCol + dc;
+            if (kr >= 0 && kr < 8 && kc >= 0 && kc < 8) {
+                if (board[kr][kc] == enemyKing) return true;
+            }
+        }
+    }
+
+    // Straight Rays (Rooks / Queens)
+    char enemyRook = (attackingSide == PieceColour::white) ? 'R' : 'r';
+    char enemyQueen = (attackingSide == PieceColour::white) ? 'Q' : 'q';
+    int straightDirs[4][2] = { {-1,0}, {1,0}, {0,-1}, {0,1} };
+    for (auto& d : straightDirs) {
+        int r = targetRow + d[0], c = targetCol + d[1];
+        while (r >= 0 && r < 8 && c >= 0 && c < 8) {
+            if (r == ignoreRow && c == ignoreCol) { // Ignore original King tile during retreat
+                r += d[0]; c += d[1];
+                continue;
+            }
+            char p = board[r][c];
+            if (p != '.') {
+                if (p == enemyRook || p == enemyQueen) return true;
+                break;
+            }
+            r += d[0]; c += d[1];
+        }
+    }
+
+    // Diagonal Rays (Bishops / Queens)
+    char enemyBishop = (attackingSide == PieceColour::white) ? 'B' : 'b';
+    int diagDirs[4][2] = { {-1,-1}, {-1,1}, {1,-1}, {1,1} };
+    for (auto& d : diagDirs) {
+        int r = targetRow + d[0], c = targetCol + d[1];
+        while (r >= 0 && r < 8 && c >= 0 && c < 8) {
+            if (r == ignoreRow && c == ignoreCol) {
+                r += d[0]; c += d[1];
+                continue;
+            }
+            char p = board[r][c];
+            if (p != '.') {
+                if (p == enemyBishop || p == enemyQueen) return true;
+                break;
+            }
+            r += d[0]; c += d[1];
+        }
+    }
+
+    return false;
+}
+
+// 2. King Position Lookup & Check Validation
 bool findKing(PieceColour kingColor, const char board[8][8], int& outRow, int& outCol) {
     char targetKing = (kingColor == PieceColour::white) ? 'K' : 'k';
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
             if (board[r][c] == targetKing) {
-                outRow = r;
-                outCol = c;
+                outRow = r; outCol = c;
                 return true;
             }
         }
@@ -1214,173 +1289,160 @@ bool findKing(PieceColour kingColor, const char board[8][8], int& outRow, int& o
     return false;
 }
 
-// Checks if a specific board square is targeted by any opposing piece
-bool isSquareAttacked(int targetRow, int targetCol, PieceColour attackingSide, const char board[8][8]) {
-    for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) {
-            if (getPieceColour(r, c, board) != attackingSide) continue;
-
-            PieceType type = getPieceType(r, c, board);
-            bool canAttack = false;
-
-            switch (type) {
-            case PieceType::pawn: {
-                int step = (attackingSide == PieceColour::white) ? -1 : 1;
-                if (abs(targetCol - c) == 1 && (targetRow - r) == step) {
-                    canAttack = true;
-                }
-                break;
-            }
-            case PieceType::knight:
-                canAttack = isValidKnightMove(r, c, targetRow, targetCol);
-                break;
-            case PieceType::bishop:
-                canAttack = isValidBishopMove(r, c, targetRow, targetCol, board);
-                break;
-            case PieceType::rook:
-                canAttack = isValidRookMove(r, c, targetRow, targetCol, board);
-                break;
-            case PieceType::queen:
-                canAttack = isValidQueenMove(r, c, targetRow, targetCol, board);
-                break;
-            case PieceType::king:
-                canAttack = (abs(targetRow - r) <= 1 && abs(targetCol - c) <= 1);
-                break;
-            default:
-                break;
-            }
-
-            if (canAttack) return true;
-        }
-    }
-    return false;
-}
-
-// Determines if the specified player's King is under attack
 bool isKingInCheck(PieceColour kingColor, const char board[8][8]) {
-    int kRow = -1, kCol = -1;
-    if (!findKing(kingColor, board, kRow, kCol)) return false;
-
+    int kr = -1, kc = -1;
+    if (!findKing(kingColor, board, kr, kc)) return false;
     PieceColour enemyColor = (kingColor == PieceColour::white) ? PieceColour::black : PieceColour::white;
-    return isSquareAttacked(kRow, kCol, enemyColor, board);
+    return isSquareAttacked(kr, kc, enemyColor, board);
 }
 
-// Evaluates comprehensive move validity (geometry, turn order, boundaries, self-check safety)
+// 3. Simulated Move Validation
 bool isMoveValid(int fromRow, int fromCol, int toRow, int toCol, const char board[8][8], int turn, const GameSession* session) {
-    // Bounds check
     if (fromRow < 0 || fromRow >= 8 || fromCol < 0 || fromCol >= 8) return false;
     if (toRow < 0 || toRow >= 8 || toCol < 0 || toCol >= 8) return false;
     if (fromRow == toRow && fromCol == toCol) return false;
 
-    PieceColour sourceColour = getPieceColour(fromRow, fromCol, board);
-    PieceColour targetColour = getPieceColour(toRow, toCol, board);
+    char piece = board[fromRow][fromCol];
+    if (piece == '.') return false;
 
-    // Turn order validation
     bool isWhiteTurn = (turn % 2 == 1);
-    if (isWhiteTurn && sourceColour != PieceColour::white) return false;
-    if (!isWhiteTurn && sourceColour != PieceColour::black) return false;
+    if (isWhiteTurn && !isupper(piece)) return false;
+    if (!isWhiteTurn && !islower(piece)) return false;
 
-    // Friendly piece collision check
-    if (sourceColour == targetColour) return false;
-
-    PieceType type = getPieceType(fromRow, fromCol, board);
-    bool geometryPass = false;
-
-    // Piece-specific geometry validation
-    switch (type) {
-    case PieceType::pawn:   geometryPass = isValidPawnMove(fromRow, fromCol, toRow, toCol, sourceColour, board, session); break;
-    case PieceType::knight: geometryPass = isValidKnightMove(fromRow, fromCol, toRow, toCol); break;
-    case PieceType::bishop: geometryPass = isValidBishopMove(fromRow, fromCol, toRow, toCol, board); break;
-    case PieceType::rook:   geometryPass = isValidRookMove(fromRow, fromCol, toRow, toCol, board); break;
-    case PieceType::queen:  geometryPass = isValidQueenMove(fromRow, fromCol, toRow, toCol, board); break;
-    case PieceType::king:   geometryPass = isValidKingMove(fromRow, fromCol, toRow, toCol, sourceColour, board, session); break;
-    default: return false;
+    char target = board[toRow][toCol];
+    if (target != '.') {
+        if (isWhiteTurn && isupper(target)) return false;
+        if (!isWhiteTurn && islower(target)) return false;
     }
 
-    if (!geometryPass) return false;
+    PieceType type = getPieceType(fromRow, fromCol, board);
+    PieceColour enemyColor = isWhiteTurn ? PieceColour::black : PieceColour::white;
+    int dr = toRow - fromRow, dc = toCol - fromCol;
+    bool geometryValid = false;
 
-    // Simulate move on a temporary board to verify self-check safety
+    // Movement Geometry Checks
+    if (type == PieceType::pawn) {
+        int dir = isWhiteTurn ? -1 : 1;
+        int startRow = isWhiteTurn ? 6 : 1;
+        if (dc == 0 && dr == dir && target == '.') geometryValid = true;
+        else if (dc == 0 && dr == 2 * dir && fromRow == startRow && target == '.' && board[fromRow + dir][fromCol] == '.') geometryValid = true;
+        else if (abs(dc) == 1 && dr == dir && target != '.') geometryValid = true;
+    }
+    else if (type == PieceType::knight) {
+        if ((abs(dr) == 1 && abs(dc) == 2) || (abs(dr) == 2 && abs(dc) == 1)) geometryValid = true;
+    }
+    else if (type == PieceType::bishop || type == PieceType::rook || type == PieceType::queen) {
+        bool isDiag = abs(dr) == abs(dc);
+        bool isStraight = (dr == 0 || dc == 0);
+        if ((type == PieceType::bishop && isDiag) ||
+            (type == PieceType::rook && isStraight) ||
+            (type == PieceType::queen && (isDiag || isStraight))) {
+            int stepR = (dr == 0) ? 0 : ((dr > 0) ? 1 : -1);
+            int stepC = (dc == 0) ? 0 : ((dc > 0) ? 1 : -1);
+            int r = fromRow + stepR, c = fromCol + stepC;
+            bool blocked = false;
+            while (r != toRow || c != toCol) {
+                if (board[r][c] != '.') { blocked = true; break; }
+                r += stepR; c += stepC;
+            }
+            if (!blocked) geometryValid = true;
+        }
+    }
+    else if (type == PieceType::king) {
+        if (abs(dr) <= 1 && abs(dc) <= 1) {
+            geometryValid = true;
+        }
+        else if (dr == 0 && abs(dc) == 2 && session) { // Castling
+            bool kingMoved = isWhiteTurn ? session->whiteKingMoved : session->blackKingMoved;
+            if (!kingMoved && !isKingInCheck(isWhiteTurn ? PieceColour::white : PieceColour::black, board)) {
+                if (dc == 2 && !session->whiteRookHMoved && board[fromRow][5] == '.' && board[fromRow][6] == '.') {
+                    if (!isSquareAttacked(fromRow, 5, enemyColor, board) && !isSquareAttacked(fromRow, 6, enemyColor, board)) geometryValid = true;
+                }
+                else if (dc == -2 && !session->whiteRookAMoved && board[fromRow][1] == '.' && board[fromRow][2] == '.' && board[fromRow][3] == '.') {
+                    if (!isSquareAttacked(fromRow, 2, enemyColor, board) && !isSquareAttacked(fromRow, 3, enemyColor, board)) geometryValid = true;
+                }
+            }
+        }
+    }
+
+    if (!geometryValid) return false;
+
+    // Simulate move on a temporary board to verify King safety
     char tempBoard[8][8];
     memcpy(tempBoard, board, sizeof(tempBoard));
     tempBoard[toRow][toCol] = tempBoard[fromRow][fromCol];
     tempBoard[fromRow][fromCol] = '.';
 
-    // Handle En Passant capture cleanup on temp board
-    if (type == PieceType::pawn && abs(toCol - fromCol) == 1 && board[toRow][toCol] == '.') {
-        tempBoard[fromRow][toCol] = '.';
+    if (type == PieceType::king && abs(dc) == 2) {
+        if (dc == 2) { tempBoard[fromRow][5] = tempBoard[fromRow][7]; tempBoard[fromRow][7] = '.'; }
+        else if (dc == -2) { tempBoard[fromRow][3] = tempBoard[fromRow][0]; tempBoard[fromRow][0] = '.'; }
     }
 
-    // Verify move does not leave friendly King in check
-    if (isKingInCheck(sourceColour, tempBoard)) {
-        return false;
+    // Pass original King coordinates to bypass ray blocking during check evaluation
+    PieceColour myColor = isWhiteTurn ? PieceColour::white : PieceColour::black;
+    int tempKr = -1, tempKc = -1;
+    findKing(myColor, tempBoard, tempKr, tempKc);
+
+    if (isSquareAttacked(tempKr, tempKc, enemyColor, tempBoard, (type == PieceType::king ? fromRow : -1), (type == PieceType::king ? fromCol : -1))) {
+        return false; // Invalid: leaves King in check
     }
 
     return true;
 }
 
-// Draws overlay indicators for legal move targets and capture rings
-void renderMoveHints(RenderWindow& window, const GameSession& session) {
-    if (!session.hasSelection || session.isGameOver || session.isPromoting) return;
-
-    const float tileSize = WINDOW_SIZE / 8.f;
-
-    for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) {
-            if (isMoveValid(session.selectedRow, session.selectedCol, r, c,
-                session.activeBoard, session.activeMoves, &session)) {
-
-                float centerX = c * tileSize + (tileSize / 2.f);
-                float centerY = r * tileSize + (tileSize / 2.f);
-
-                bool isCapture = (session.activeBoard[r][c] != '.');
-                char selectedPiece = session.activeBoard[session.selectedRow][session.selectedCol];
-                if (tolower(selectedPiece) == 'p' && abs(c - session.selectedCol) == 1 && session.activeBoard[r][c] == '.') {
-                    isCapture = true; // En Passant capture hint
-                }
-
-                if (isCapture) {
-                    // Draw outer ring for captures
-                    float ringRadius = tileSize * 0.42f;
-                    CircleShape ring(ringRadius);
-                    ring.setOrigin({ ringRadius, ringRadius });
-                    ring.setPosition({ centerX, centerY });
-                    ring.setFillColor(Color::Transparent);
-                    ring.setOutlineColor(hintCaptureRingColor);
-                    ring.setOutlineThickness(tileSize * 0.08f);
-                    window.draw(ring);
-                }
-                else {
-                    // Draw centered dot for standard moves
-                    float dotRadius = tileSize * 0.16f;
-                    CircleShape dot(dotRadius);
-                    dot.setOrigin({ dotRadius, dotRadius });
-                    dot.setPosition({ centerX, centerY });
-                    dot.setFillColor(hintDotColor);
-                    window.draw(dot);
-                }
-            }
-        }
-    }
-}
-
-// Checks if the player has any valid legal moves available (Checkmate/Stalemate determination)
+// 4. Legal Move Scan for Checkmate & Stalemate
 bool hasAnyLegalMoves(PieceColour playerColor, const GameSession& session) {
     int turn = (playerColor == PieceColour::white) ? 1 : 2;
-
-    for (int r1 = 0; r1 < 8; r1++) {
-        for (int c1 = 0; c1 < 8; c1++) {
-            if (getPieceColour(r1, c1, session.activeBoard) != playerColor) continue;
-
-            for (int r2 = 0; r2 < 8; r2++) {
-                for (int c2 = 0; c2 < 8; c2++) {
-                    if (isMoveValid(r1, c1, r2, c2, session.activeBoard, turn, &session)) {
-                        return true;
+    for (int fr = 0; fr < 8; fr++) {
+        for (int fc = 0; fc < 8; fc++) {
+            if (getPieceColour(fr, fc, session.activeBoard) == playerColor) {
+                for (int tr = 0; tr < 8; tr++) {
+                    for (int tc = 0; tc < 8; tc++) {
+                        if (isMoveValid(fr, fc, tr, tc, session.activeBoard, turn, &session)) {
+                            return true;
+                        }
                     }
                 }
             }
         }
     }
     return false;
+}
+
+void renderMoveHints(RenderWindow& window, const GameSession& session) {
+    if (!session.hasSelection) return;
+
+    const float tileSize = WINDOW_SIZE / 8.f;
+    int fr = session.selectedRow;
+    int fc = session.selectedCol;
+
+    for (int tr = 0; tr < 8; tr++) {
+        for (int tc = 0; tc < 8; tc++) {
+            if (isMoveValid(fr, fc, tr, tc, session.activeBoard, session.activeMoves, &session)) {
+                float centerX = tc * tileSize + tileSize / 2.f;
+                float centerY = tr * tileSize + tileSize / 2.f;
+
+                if (session.activeBoard[tr][tc] == '.') {
+                    // Draw a small dot for empty target squares
+                    CircleShape dot(tileSize * 0.15f);
+                    dot.setOrigin({ dot.getRadius(), dot.getRadius() });
+                    dot.setPosition({ centerX, centerY });
+                    dot.setFillColor(hintDotColor);
+                    window.draw(dot);
+                }
+                else {
+                    // Draw a ring outline for capture target squares
+                    CircleShape ring(tileSize * 0.42f);
+                    ring.setOrigin({ ring.getRadius(), ring.getRadius() });
+                    ring.setPosition({ centerX, centerY });
+                    ring.setFillColor(Color::Transparent);
+                    ring.setOutlineColor(hintCaptureRingColor);
+                    ring.setOutlineThickness(5.f);
+                    window.draw(ring);
+                }
+            }
+        }
+    }
 }
 
 // Handles piece selection, movement execution, special rules, and game state resolution

@@ -1,9 +1,9 @@
-3
-r n b q k b n r 
-p p p . p p p p 
+5
+r n b . k b n r 
+p p p p . p p p 
 . . . . . . . . 
-. . . p . . . . 
+. . . . p . . . 
+. . . P P . . q 
 . . . . . . . . 
-. . . P . . . . 
-P P P . P P P P 
+P P P . . P P P 
 R N B Q K B N R 
